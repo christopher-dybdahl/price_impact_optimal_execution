@@ -24,13 +24,16 @@ def create_synthetic_alpha(
     rho: float = 0.05,
     h_bins: int = 1,
     seed: int = 42,
+    price_col: str = "mid",
     verbose: bool = False,
 ) -> pd.DataFrame:
     """Per-stock synthetic alpha with target correlation `rho` and h-bin horizon.
 
     Parameters
     ----------
-    data : DataFrame with columns [stock, date, time, mid].
+    data : DataFrame with columns [stock, date, time, price_col].
+        Pass ``price_col="p_unpert"`` when generating signals from the
+        model-defined no-us path.
     rho  : target correlation between α and forward h-bin return.
     h_bins : forecast horizon in 10-second bins.
     seed : RNG seed for the Wiener increments.
@@ -44,8 +47,9 @@ def create_synthetic_alpha(
     if h_bins < 1:
         raise ValueError("h_bins must be a positive integer")
 
-    df = data[["stock", "date", "time", "mid"]].copy()
-    df["fwd_ret"] = df.groupby(["stock", "date"])["mid"].transform(
+    df = data[["stock", "date", "time", price_col]].copy()
+    df = df.rename(columns={price_col: "price"})
+    df["fwd_ret"] = df.groupby(["stock", "date"])["price"].transform(
         lambda p: p.pct_change(periods=h_bins).shift(-h_bins)
     )
 
@@ -54,7 +58,7 @@ def create_synthetic_alpha(
         .groupby("stock")
         .agg(
             var_r=("fwd_ret", "var"),
-            E_Pinv2=("mid", lambda p: (1.0 / p**2).mean()),
+            E_Pinv2=("price", lambda p: (1.0 / p**2).mean()),
         )
     )
     stock_params["x"] = 1.0
@@ -68,7 +72,7 @@ def create_synthetic_alpha(
     df = df.merge(stock_params[["x", "y"]].reset_index(), on="stock", how="left")
     rng = np.random.default_rng(seed)
     df["dW"] = rng.standard_normal(len(df)) * np.sqrt(h_bins)
-    df["alpha"] = df["x"] * df["fwd_ret"] + df["y"] * df["dW"] / df["mid"]
+    df["alpha"] = df["x"] * df["fwd_ret"] + df["y"] * df["dW"] / df["price"]
     df = df.dropna(subset=["alpha", "fwd_ret"])
 
     if verbose:

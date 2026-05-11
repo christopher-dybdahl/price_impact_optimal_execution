@@ -3,7 +3,7 @@
   "model_type": "linear",
   "strategy": "ow",
   "carry": "daily",
-  "half_life_minutes": 60.0,
+  "half_life_minutes": 105,
   "tau_bins": 180,
   "rho": 0.05,
   "h_alpha_bins": 1,
@@ -11,5 +11,5 @@
   "liquidation_minutes": 30,
   "overnight_minutes": 960,
   "seed": 42,
-  "save_root": "/Users/AnranSeverac/PriceImpact/final_project/saved"
+  "save_root": "saved"
 }

@@ -68,15 +68,20 @@ def select_top_stocks(data: pd.DataFrame, top_n: int = 20) -> list[str]:
 def compute_daily_stats(
     data: pd.DataFrame,
     lookback_days: int = 20,
+    price_col: str = "mid",
+    volume_col: str = "trade",
 ) -> pd.DataFrame:
     """Trailing 20-day daily statistics: sigma (10-s return std) and ADV.
 
     Returns a DataFrame indexed by (stock, date) with columns sigma, ADV.
 
-    sigma_{i,d}  = trailing-`lookback_days` std of 10-s mid returns
-    ADV_{i,d}    = trailing-`lookback_days` mean of daily |trade| sum
+    sigma_{i,d}  = trailing-`lookback_days` std of 10-s returns on `price_col`
+    ADV_{i,d}    = trailing-`lookback_days` mean of daily |volume_col| sum
+
+    Use ``price_col="p_unpert"`` when the panel has already been enriched with
+    model-defined no-us prices and the intended risk window is counterfactual.
     """
-    df = data[["stock", "date", "time", "mid", "trade"]].copy()
+    df = data[["stock", "date", "time", price_col, volume_col]].copy()
 
     # Daily aggregates first.
     daily = (
@@ -84,8 +89,8 @@ def compute_daily_stats(
         .apply(
             lambda g: pd.Series(
                 {
-                    "ret_var": g["mid"].pct_change().var(),
-                    "volume": g["trade"].abs().sum(),
+                    "ret_var": g[price_col].pct_change().var(),
+                    "volume": g[volume_col].abs().sum(),
                 }
             )
         )

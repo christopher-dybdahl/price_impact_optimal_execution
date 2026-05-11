@@ -2,7 +2,8 @@
 
 Implements the price construction from Part 4 of the course:
 
-    P_sim(t) = P_0 · ( 1 + cum_ret(t) + g_sim(t) - g_ref(t) )
+    P_unpert(t) = P_0 · (1 + cum_ret(t) + g_others(t))
+    P_pert(t)   = P_0 · (1 + cum_ret(t) + g_full(t))
 
 where g(t) is the "impact contribution":
 
@@ -10,9 +11,17 @@ where g(t) is the "impact contribution":
     time-dep λ:   g(t) = λ(t) · Ī(t)     (extended OW; via `lam_t`)
 
 Ī(t) is the OU recursion on normalised flow (linear or sqrt). The simulator
-accepts **any** signed trade path `q_sim` (not only the OW-optimal one) and
-supports both `carry='daily'` (reset Ī to 0 each day) and `carry='multi'`
-(carry Ī and inventory across days with overnight decay).
+uses explicit flow accounting on a common bin grid:
+
+    q_agg    = aggregate signed tape flow
+    q_us     = our signed trade path
+    q_others = q_agg - q_us
+
+The "unperturbed" state is driven by q_others and the "perturbed" state by
+q_agg. The simulator accepts **any** signed trade path `q_us` (not only the
+OW-optimal one) and supports both `carry='daily'` (reset Ī to 0 each day) and
+`carry='multi'` (carry both impact states and inventory across days with
+overnight decay).
 
 This module intentionally keeps a *single* simulator entrypoint
 (:func:`run_backtest`) and a small set of helpers — anything more belongs in
@@ -55,20 +64,24 @@ def ou_recursion(qt: np.ndarray, decay: float, i0: float = 0.0) -> np.ndarray:
 
 def waelbroeck_prices(
     mid: np.ndarray,
-    q_ref: np.ndarray,
-    q_sim: np.ndarray,
+    q_agg: np.ndarray,
+    q_us: np.ndarray,
     lam: float | np.ndarray,
     half_life_minutes: float,
     sigma: float,
     adv: float,
     model_type: ModelType = "linear",
-    i_ref0: float = 0.0,
-    i_sim0: float = 0.0,
+    i_others0: float = 0.0,
+    i_full0: float = 0.0,
 ) -> dict[str, np.ndarray]:
     """Simulate one (stock, date) session.
 
     Parameters
     ----------
+    q_agg
+        Aggregate signed flow from the tape, in shares per bin.
+    q_us
+        Our signed flow, in the same units and sign convention as ``q_agg``.
     lam : float or array of length len(mid)
         Scalar λ for the OW / AFS baseline, or a per-bin λ_t array for the
         extended-OW (time-dependent λ) model. The simulator multiplies
@@ -77,46 +90,67 @@ def waelbroeck_prices(
     Returns
     -------
     dict with keys:
-        p_mid    — undistorted mid (reference price)
-        p_sim    — Waelbroeck-distorted simulated price
-        i_ref    — reference impact state Ī^ref(t)
-        i_sim    — simulated impact state Ī^sim(t)
-        g_ref    — λ · Ī^ref   (or λ_t · Ī^ref for time-dep λ)
-        g_sim    — λ · Ī^sim
-        position — cumulative simulated position (shares)
-        cum_ret  — cumulative undistorted mid return
+        p_mid      — observed mid used to define the common baseline return
+        p_unpert   — no-us Waelbroeck path, driven by q_others
+        p_pert     — with-us Waelbroeck path, driven by q_agg
+        i_others   — impact state Ī(q_agg - q_us)
+        i_full     — impact state Ī(q_agg)
+        g_others   — λ · Ī_others   (or λ_t · Ī_others for time-dep λ)
+        g_full     — λ · Ī_full
+        delta_g    — g_full - g_others
+        position   — cumulative position from q_us (shares)
+        cum_ret    — cumulative observed mid return from P0
+
+    Backward-compatible aliases are also returned:
+        p_sim=p_pert, i_ref=i_others, i_sim=i_full, g_ref=g_others,
+        g_sim=g_full, q_sim=q_us.
     """
     mid = np.asarray(mid, dtype=float)
-    q_ref = np.asarray(q_ref, dtype=float)
-    q_sim = np.asarray(q_sim, dtype=float)
-    if not (len(mid) == len(q_ref) == len(q_sim)):
-        raise ValueError("mid, q_ref, q_sim must have the same length")
+    q_agg = np.asarray(q_agg, dtype=float)
+    q_us = np.asarray(q_us, dtype=float)
+    if not (len(mid) == len(q_agg) == len(q_us)):
+        raise ValueError("mid, q_agg, q_us must have the same length")
     n = len(mid)
 
-    qt_ref = q_tilde(q_ref, sigma, adv, model_type)
-    qt_sim = q_tilde(q_sim, sigma, adv, model_type)
+    q_others = q_agg - q_us
+    qt_others = q_tilde(q_others, sigma, adv, model_type)
+    qt_full = q_tilde(q_agg, sigma, adv, model_type)
     decay = decay_from_half_life(half_life_minutes)
 
-    i_ref = ou_recursion(qt_ref, decay, i_ref0)
-    i_sim = ou_recursion(qt_sim, decay, i_sim0)
+    i_others = ou_recursion(qt_others, decay, i_others0)
+    i_full = ou_recursion(qt_full, decay, i_full0)
 
     lam_arr = np.broadcast_to(np.asarray(lam, dtype=float), (n,))
-    g_ref = lam_arr * i_ref
-    g_sim = lam_arr * i_sim
+    g_others = lam_arr * i_others
+    g_full = lam_arr * i_full
+    delta_g = g_full - g_others
 
     cum_ret = (mid - mid[0]) / mid[0] if mid[0] != 0 else np.zeros(n)
-    p_sim = mid[0] * (1.0 + cum_ret + (g_sim - g_ref))
-    position = np.cumsum(q_sim)
+    p_unpert = mid[0] * (1.0 + cum_ret + g_others)
+    p_pert = mid[0] * (1.0 + cum_ret + g_full)
+    position = np.cumsum(q_us)
 
     return {
         "p_mid": mid,
-        "p_sim": p_sim,
-        "i_ref": i_ref,
-        "i_sim": i_sim,
-        "g_ref": g_ref,
-        "g_sim": g_sim,
+        "p_unpert": p_unpert,
+        "p_pert": p_pert,
+        "i_others": i_others,
+        "i_full": i_full,
+        "g_others": g_others,
+        "g_full": g_full,
+        "delta_g": delta_g,
+        "q_agg": q_agg,
+        "q_us": q_us,
+        "q_others": q_others,
         "position": position,
         "cum_ret": cum_ret,
+        # Legacy aliases used by older notebook cells / artifacts.
+        "p_sim": p_pert,
+        "i_ref": i_others,
+        "i_sim": i_full,
+        "g_ref": g_others,
+        "g_sim": g_full,
+        "q_sim": q_us,
     }
 
 
@@ -164,20 +198,36 @@ class DaySimulation:
     date: pd.Timestamp
     time: np.ndarray
     p_mid: np.ndarray
+    p_unpert: np.ndarray
+    p_pert: np.ndarray
     p_sim: np.ndarray
+    i_others: np.ndarray
+    i_full: np.ndarray
     i_ref: np.ndarray
     i_sim: np.ndarray
+    g_others: np.ndarray
+    g_full: np.ndarray
+    delta_g: np.ndarray
     g_ref: np.ndarray
     g_sim: np.ndarray
     position: np.ndarray
+    q_agg: np.ndarray
+    q_us: np.ndarray
+    q_others: np.ndarray
     q_sim: np.ndarray
+    volume: np.ndarray | None
+    participation: np.ndarray | None
     alpha: np.ndarray | None
     fwd_ret: np.ndarray | None
     sigma: float
     adv: float
     lam: float | np.ndarray
-    pnl_mid: float          # mark-to-market on undistorted mid
-    pnl_sim: float          # mark-to-market on Waelbroeck simulated price
+    pnl_unpert: float       # mark-to-market on no-us Waelbroeck path
+    pnl_pert: float         # mark-to-market on with-us Waelbroeck path
+    pnl_mid_raw: float      # mark-to-market on observed mid
+    pnl_mid: float          # legacy alias: pnl_unpert
+    pnl_sim: float          # legacy alias: pnl_pert
+    flow_flag_count: int = 0
 
 
 @dataclass
@@ -198,19 +248,46 @@ class BacktestResult:
 def _daily_rows(days: list[DaySimulation]) -> list[dict]:
     rows: list[dict] = []
     for d in days:
-        lam_max = float(np.max(np.abs(d.g_sim))) if len(d.g_sim) else 0.0
-        impact_cost = d.pnl_mid - d.pnl_sim
+        lam_max = float(np.max(np.abs(d.delta_g))) if len(d.delta_g) else 0.0
+        impact_cost = d.pnl_unpert - d.pnl_pert
+        day_volume = (
+            float(np.nansum(np.abs(d.volume))) if d.volume is not None else float("nan")
+        )
+        abs_turnover = float(np.sum(np.abs(d.q_us)))
+        day_participation = (
+            abs_turnover / day_volume
+            if np.isfinite(day_volume) and day_volume > 0
+            else float("nan")
+        )
+        mean_participation = (
+            float(np.nanmean(d.participation))
+            if d.participation is not None and len(d.participation)
+            else float("nan")
+        )
+        max_participation = (
+            float(np.nanmax(d.participation))
+            if d.participation is not None and len(d.participation)
+            else float("nan")
+        )
         rows.append(
             {
                 "stock": d.stock,
                 "date": d.date,
+                "pnl_unpert": d.pnl_unpert,
+                "pnl_pert": d.pnl_pert,
+                "pnl_mid_raw": d.pnl_mid_raw,
                 "pnl_mid": d.pnl_mid,
                 "pnl_sim": d.pnl_sim,
                 "impact_cost": impact_cost,
-                "turnover": float(np.sum(np.abs(d.q_sim))),
+                "turnover": abs_turnover,
+                "day_volume": day_volume,
+                "day_participation": day_participation,
+                "mean_bin_participation": mean_participation,
+                "max_bin_participation": max_participation,
                 "abs_position_mean": float(np.mean(np.abs(d.position))),
                 "abs_position_max": float(np.max(np.abs(d.position))),
                 "max_impact_dislocation": lam_max,
+                "flow_flag_count": int(d.flow_flag_count),
                 "n_bins": int(len(d.position)),
             }
         )
@@ -225,6 +302,7 @@ def run_backtest(
     carry: CarryMode = "daily",
     overnight_minutes: float = 16 * 60,
     q_reference_col: str = "orderFlow",
+    volume_col: str = "trade",
     mid_col: str = "mid",
     time_col: str = "time",
     alpha_col: str | None = "alpha",
@@ -236,8 +314,9 @@ def run_backtest(
     ----------
     merged
         Long-form bin panel that contains [stock, date, time, mid, orderFlow]
-        and (optionally) [alpha, fwd_ret]. The trade provider gets the
-        per-day slice.
+        and (optionally) [trade, alpha, fwd_ret]. ``orderFlow`` is interpreted
+        as q_agg and the trade provider output as q_us, with
+        q_others = q_agg - q_us. The trade provider gets the per-day slice.
     model
         :class:`ImpactModel` carrying λ lookups and model_type.
     trade_provider
@@ -263,8 +342,8 @@ def run_backtest(
         lam_scalar = model.lam_for(stock)
         if not np.isfinite(lam_scalar) or lam_scalar <= 0:
             continue
-        i_ref_carry = 0.0
-        i_sim_carry = 0.0
+        i_others_carry = 0.0
+        i_full_carry = 0.0
         pos_carry = 0.0
         for date, g_day in g_stock.groupby("date", sort=False):
             g_day = g_day.sort_values(time_col)
@@ -288,31 +367,49 @@ def run_backtest(
             ctx = BacktestContext(
                 stock=stock, date=date, sigma=sigma, adv=adv, lam=lam, model=model
             )
-            q_sim = np.asarray(trade_provider(stock, date, g_day, ctx), dtype=float)
-            if q_sim.shape[0] != len(g_day):
+            q_us = np.asarray(trade_provider(stock, date, g_day, ctx), dtype=float)
+            if q_us.shape[0] != len(g_day):
                 raise ValueError(
-                    f"trade_provider returned {q_sim.shape[0]} values for "
+                    f"trade_provider returned {q_us.shape[0]} values for "
                     f"({stock!r}, {date}); expected {len(g_day)}"
                 )
 
             mid = g_day[mid_col].to_numpy(dtype=float)
-            q_ref = g_day[q_reference_col].to_numpy(dtype=float)
+            q_agg = g_day[q_reference_col].to_numpy(dtype=float)
+            volume = (
+                g_day[volume_col].to_numpy(dtype=float)
+                if volume_col and volume_col in g_day.columns
+                else None
+            )
+            if volume is not None:
+                denom = np.abs(volume)
+                participation = np.divide(
+                    np.abs(q_us),
+                    denom,
+                    out=np.full_like(q_us, np.nan, dtype=float),
+                    where=denom > 0,
+                )
+            else:
+                participation = None
+
+            flow_flag = np.abs(q_us) > (np.abs(q_agg) + 1e-12)
             sim = waelbroeck_prices(
                 mid=mid,
-                q_ref=q_ref,
-                q_sim=q_sim,
+                q_agg=q_agg,
+                q_us=q_us,
                 lam=lam,
                 half_life_minutes=model.half_life_minutes,
                 sigma=sigma,
                 adv=adv,
                 model_type=model.model_type,
-                i_ref0=i_ref_carry if carry == "multi" else 0.0,
-                i_sim0=i_sim_carry if carry == "multi" else 0.0,
+                i_others0=i_others_carry if carry == "multi" else 0.0,
+                i_full0=i_full_carry if carry == "multi" else 0.0,
             )
 
             position = sim["position"] + (pos_carry if carry == "multi" else 0.0)
-            pnl_mid = mark_to_market_pnl(mid, position)
-            pnl_sim = mark_to_market_pnl(sim["p_sim"], position)
+            pnl_unpert = mark_to_market_pnl(sim["p_unpert"], position)
+            pnl_pert = mark_to_market_pnl(sim["p_pert"], position)
+            pnl_mid_raw = mark_to_market_pnl(mid, position)
 
             alpha_arr = (
                 g_day[alpha_col].to_numpy(dtype=float)
@@ -331,26 +428,42 @@ def run_backtest(
                     date=date,
                     time=g_day[time_col].to_numpy(),
                     p_mid=mid,
+                    p_unpert=sim["p_unpert"],
+                    p_pert=sim["p_pert"],
                     p_sim=sim["p_sim"],
+                    i_others=sim["i_others"],
+                    i_full=sim["i_full"],
                     i_ref=sim["i_ref"],
                     i_sim=sim["i_sim"],
+                    g_others=sim["g_others"],
+                    g_full=sim["g_full"],
+                    delta_g=sim["delta_g"],
                     g_ref=sim["g_ref"],
                     g_sim=sim["g_sim"],
                     position=position,
-                    q_sim=q_sim,
+                    q_agg=sim["q_agg"],
+                    q_us=sim["q_us"],
+                    q_others=sim["q_others"],
+                    q_sim=q_us,
+                    volume=volume,
+                    participation=participation,
                     alpha=alpha_arr,
                     fwd_ret=fwd_arr,
                     sigma=sigma,
                     adv=adv,
                     lam=lam,
-                    pnl_mid=pnl_mid,
-                    pnl_sim=pnl_sim,
+                    pnl_unpert=pnl_unpert,
+                    pnl_pert=pnl_pert,
+                    pnl_mid_raw=pnl_mid_raw,
+                    pnl_mid=pnl_unpert,
+                    pnl_sim=pnl_pert,
+                    flow_flag_count=int(flow_flag.sum()),
                 )
             )
 
             if carry == "multi":
-                i_ref_carry = float(sim["i_ref"][-1]) * ovn
-                i_sim_carry = float(sim["i_sim"][-1]) * ovn
+                i_others_carry = float(sim["i_others"][-1]) * ovn
+                i_full_carry = float(sim["i_full"][-1]) * ovn
                 pos_carry = float(position[-1])
 
     result = BacktestResult(days=days, model=model)

@@ -42,27 +42,29 @@ def build_regression_features(
     tau_bins: int,
     carry: CarryMode = "daily",
     start_time: str = "10:00:00",
+    price_col: str = "mid",
 ) -> pd.DataFrame:
     """Build per-bin (x, y) regression features for impact-model OLS.
 
     x_t = Ī_t - Ī_{t-τ}   (change in normalised impact state over τ bins)
-    y_t = (P_t - P_{t-τ}) / P_{t-τ}   (τ-bin return)
+    y_t = (P_t - P_{t-τ}) / P_{t-τ}   (τ-bin return on `price_col`)
 
     Bins before `start_time` are dropped to avoid open effects.
     """
     i_col = select_i_bar_column(carry)
     df = impact_states_df[["stock", "date", "time", i_col]].merge(
-        data[["stock", "date", "time", "mid"]],
+        data[["stock", "date", "time", price_col]],
         on=["stock", "date", "time"],
         how="inner",
     )
+    df = df.rename(columns={price_col: "price"})
     df = df.sort_values(["stock", "date", "time"]).reset_index(drop=True)
 
     df["I_lag"] = df.groupby(["stock", "date"])[i_col].shift(tau_bins)
-    df["mid_lag"] = df.groupby(["stock", "date"])["mid"].shift(tau_bins)
+    df["price_lag"] = df.groupby(["stock", "date"])["price"].shift(tau_bins)
 
     df["x"] = df[i_col] - df["I_lag"]
-    df["y"] = (df["mid"] - df["mid_lag"]) / df["mid_lag"]
+    df["y"] = (df["price"] - df["price_lag"]) / df["price_lag"]
     df = df.dropna(subset=["x", "y"])
 
     if start_time:
@@ -189,6 +191,7 @@ def half_life_grid_search(
     offset: int = 2,
     overnight_minutes: float = 16 * 60,
     start_time: str = "10:00:00",
+    price_col: str = "mid",
     progress: bool = False,
 ) -> pd.DataFrame:
     """Recompute impact states for each H in the grid; fit rolling baseline;
@@ -206,7 +209,12 @@ def half_life_grid_search(
                 data, daily_stats, H, model_type=mt, overnight_minutes=overnight_minutes
             )
             feats = build_regression_features(
-                impact_df, data, tau_bins, carry=carry, start_time=start_time
+                impact_df,
+                data,
+                tau_bins,
+                carry=carry,
+                start_time=start_time,
+                price_col=price_col,
             )
             stats = daily_sufficient_stats(feats)
             baseline = rolling_baseline(stats, n_windows=n_windows, offset=offset)
