@@ -54,8 +54,14 @@ def q_tilde(orderflow: np.ndarray, sigma: float, adv: float, model_type: ModelTy
 
 
 def _ou_filter_daily(q_tilde_arr: np.ndarray, decay: float) -> np.ndarray:
-    """Single-day OU recursion starting from Ī_0 = 0 (scipy lfilter)."""
-    return lfilter([0.0, 1.0], [1.0, -decay], np.asarray(q_tilde_arr, dtype=float))
+    """Single-day OU recursion with Ī_{-1}=0, same update as ``_ou_filter_carry(..., i0=0)``.
+
+    SciPy ``lfilter`` implements y[n] = sum(b[k] x[n-k]) - sum(a[j] y[n-j]) with a[0]=1.
+    The discretisation Ī_t = decay·Ī_{t-1} + q̃_t requires b=[1], a=[1, -decay] so that
+    y[n] = x[n] + decay·y[n-1].  Using b=[0, 1] instead gives y[n] = x[n-1] + decay·y[n-1],
+    which drops the last flow sample and misaligns ``I_bar_daily`` vs ``I_bar_multi``.
+    """
+    return lfilter([1.0], [1.0, -decay], np.asarray(q_tilde_arr, dtype=float))
 
 
 def _ou_filter_carry(q_tilde_arr: np.ndarray, decay: float, i0: float) -> np.ndarray:
