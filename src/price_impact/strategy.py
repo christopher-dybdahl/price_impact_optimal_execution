@@ -3,14 +3,10 @@
 We expose three strategies:
 
   * :func:`ow_optimal_strategy`   — OW (linear) closed form.
-  * :func:`afs_optimal_strategy`  — AFS (sqrt) variant. The target-position
-                                    rule is the same as OW because the AFS
-                                    closed-form for the linear-quadratic
-                                    objective coincides with OW when impact
-                                    cost is computed instantaneously per
-                                    project.ipynb. The downstream impact /
-                                    P&L decomposition uses the sqrt
-                                    nonlinearity through the simulator.
+  * :func:`afs_optimal_strategy`  — AFS (sqrt) closed form. Inverts the
+                                    sqrt impact recursion to recover the
+                                    optimal trade per bin given a target
+                                    normalized impact state.
   * :func:`ext_ow_optimal_strategy_timedep_lambda` — placeholder for the
                                     extended OW model with time-varying λ(t).
                                     Not implemented; raises NotImplementedError.
@@ -91,26 +87,57 @@ def afs_optimal_strategy(
     half_life_minutes: float,
     max_position_adv: float = 0.005,
     liquidation_minutes: int = 30,
+    c: float = 0.5,
 ) -> np.ndarray:
     """AFS (sqrt) optimal execution.
 
-    Per project.ipynb, the target-position / adjustment-speed rule matches
-    the OW closed form. The model-specific (sqrt) nonlinearity appears in
-    the impact-state recursion (q̃_t = σ · sign(q) · √(|q| / ADV)) handled
-    by the simulator, not in the strategy itself.
+    Target normalized impact state (concavity c = 0.5 for sqrt AFS):
+        Ī*_t = α_t / ((1 + c) · λ)
 
-    Kept as a separate function so that a strict AFS closed form can be
-    dropped in here later without touching callers.
+    Trade per bin recovered by inverting the AFS impact recursion:
+        decay = 1 − β,   β = ln 2 / H_bins
+        z_t   = Ī*_t − decay · Ī_{t−1}
+        q*_t  = ADV · sign(z_t) · (|z_t| / σ)²
+
+    The end-of-day ramp is applied to Ī* before the loop — the same
+    project convention as OW's ramp on its target position.  AFS differs
+    from OW only in the trade-generation step: it inverts the sqrt impact
+    recursion rather than approaching a share-space target at rate κ.  The
+    loop additionally tracks Ī_prev so the recursion inversion is exact at
+    every bin.
     """
-    return ow_optimal_strategy(
-        alpha,
-        sigma=sigma,
-        adv=adv,
-        lam=lam,
-        half_life_minutes=half_life_minutes,
-        max_position_adv=max_position_adv,
-        liquidation_minutes=liquidation_minutes,
-    )
+    alpha = np.asarray(alpha, dtype=float)
+    alpha = np.where(np.isfinite(alpha), alpha, 0.0)
+    n = alpha.shape[0]
+    if lam <= 0 or n == 0 or sigma <= 0 or adv <= 0 or c <= 0 or half_life_minutes <= 0:
+        return np.zeros(n)
+
+    H_bins = half_life_minutes * BINS_PER_MINUTE
+    beta = np.log(2.0) / H_bins
+    decay = 1.0 - beta
+
+    ibar_star = alpha / ((1.0 + c) * lam)
+    # Clip in normalized-impact space: σ·√(max_position_adv) is the q̃ produced
+    # by a one-shot trade of max_position_adv·ADV shares — the AFS analogue of
+    # OW's target = clip(target, -max_pos, max_pos) in share space.
+    max_ibar = sigma * np.sqrt(max_position_adv)
+    ibar_star = np.clip(ibar_star, -max_ibar, max_ibar)
+
+    liq_bins = min(liquidation_minutes * BINS_PER_MINUTE, n)
+    if liq_bins > 0:
+        ramp = np.ones(n)
+        ramp[n - liq_bins :] = np.linspace(1.0, 0.0, liq_bins)
+        ibar_star = ibar_star * ramp
+
+    ibar_prev = 0.0
+    trades = np.zeros(n)
+    for t in range(n):
+        z = ibar_star[t] - decay * ibar_prev
+        q = adv * np.sign(z) * (abs(z) / sigma) ** 2
+        trades[t] = q
+        q_tilde = sigma * np.sign(q) * np.sqrt(abs(q) / adv)
+        ibar_prev = decay * ibar_prev + q_tilde
+    return trades
 
 
 # ---------------------------------------------------------------------------

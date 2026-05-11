@@ -141,10 +141,12 @@ def run_one(
     """Run a single backtest. If `trade_provider` is None, the OW/AFS optimal
     provider is wired from `cfg.strategy`."""
     if trade_provider is None:
+        # Multi-day carry allows cross-day positions — skip the EOD liquidation ramp.
+        effective_liq = cfg.liquidation_minutes if cfg.carry == "daily" else 0
         trade_provider = make_optimal_provider(
             _strategy_fn_for(cfg.strategy),
             max_position_adv=cfg.max_position_adv,
-            liquidation_minutes=cfg.liquidation_minutes,
+            liquidation_minutes=effective_liq,
         )
     return run_backtest(
         merged=merged,

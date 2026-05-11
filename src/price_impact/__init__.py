@@ -25,6 +25,7 @@ Public surface (re-exports the most-used names so the notebook stays light):
   Runner
     BacktestConfig, RunOutput, run_and_save, build_impact_model
 """
+
 from .alpha import create_synthetic_alpha
 from .backtest import (
     BacktestResult,
@@ -48,6 +49,7 @@ from .fitting import (
     daily_sufficient_stats,
     half_life_grid_search,
     per_stock_lambda,
+    per_stock_lambda_stats,
     rolling_baseline,
     rolling_nonparametric,
 )
@@ -82,29 +84,57 @@ from .strategy import (
 
 __all__ = [
     # data
-    "PanelData", "build_panel", "compute_daily_stats", "compute_volume_curves",
-    "load_bins", "select_top_stocks",
+    "PanelData",
+    "build_panel",
+    "compute_daily_stats",
+    "compute_volume_curves",
+    "load_bins",
+    "select_top_stocks",
     # impact states
-    "compute_impact_states", "decay_from_half_life", "overnight_decay",
-    "q_tilde", "select_i_bar_column",
+    "compute_impact_states",
+    "decay_from_half_life",
+    "overnight_decay",
+    "q_tilde",
+    "select_i_bar_column",
     # fitting
-    "build_regression_features", "daily_sufficient_stats",
-    "half_life_grid_search", "per_stock_lambda", "rolling_baseline",
+    "build_regression_features",
+    "daily_sufficient_stats",
+    "half_life_grid_search",
+    "per_stock_lambda",
+    "per_stock_lambda_stats",
+    "rolling_baseline",
     "rolling_nonparametric",
     # alpha
     "create_synthetic_alpha",
     # strategy
-    "ImpactModel", "afs_optimal_strategy",
-    "ext_ow_optimal_strategy_timedep_lambda", "get_strategy",
+    "ImpactModel",
+    "afs_optimal_strategy",
+    "ext_ow_optimal_strategy_timedep_lambda",
+    "get_strategy",
     "ow_optimal_strategy",
     # backtest
-    "BacktestResult", "DaySimulation", "make_fixed_provider",
-    "make_optimal_provider", "mark_to_market_pnl", "run_backtest",
+    "BacktestResult",
+    "DaySimulation",
+    "make_fixed_provider",
+    "make_optimal_provider",
+    "mark_to_market_pnl",
+    "run_backtest",
     "waelbroeck_prices",
     # results
-    "cumulative_pnl", "daily_pnl", "drawdown", "performance_metrics",
-    "plot_cumulative_impact", "plot_cumulative_pnl", "plot_drawdown",
-    "plot_sample_price_paths", "sharpe", "tca_summary", "tca_table",
+    "cumulative_pnl",
+    "daily_pnl",
+    "drawdown",
+    "performance_metrics",
+    "plot_cumulative_impact",
+    "plot_cumulative_pnl",
+    "plot_drawdown",
+    "plot_sample_price_paths",
+    "sharpe",
+    "tca_summary",
+    "tca_table",
     # runner
-    "BacktestConfig", "RunOutput", "build_impact_model", "run_and_save",
+    "BacktestConfig",
+    "RunOutput",
+    "build_impact_model",
+    "run_and_save",
 ]

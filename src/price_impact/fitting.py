@@ -392,9 +392,6 @@ def rolling_nonparametric(
     return pd.DataFrame(records), fits
 
 
-# ---------------------------------------------------------------------------
-# Convenience: produce a per-stock λ map from the rolling baseline.
-# ---------------------------------------------------------------------------
 def per_stock_lambda(baseline_df: pd.DataFrame) -> pd.Series:
     """Mean λ over all rolling windows, per stock. Use as `lam_lookup` for
     a scalar-λ backtest."""
