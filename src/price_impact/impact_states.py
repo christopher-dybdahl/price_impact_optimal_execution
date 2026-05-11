@@ -40,9 +40,7 @@ def decay_from_half_life(half_life_minutes: float) -> float:
     return 1.0 - beta_from_half_life(half_life_minutes)
 
 
-def overnight_decay(
-    half_life_minutes: float, overnight_minutes: float = 16 * 60
-) -> float:
+def overnight_decay(half_life_minutes: float, overnight_minutes: float = 0.0) -> float:
     """Multiplicative decay applied to Ī across an overnight gap (no flow)."""
     if overnight_minutes <= 0:
         return 1.0
@@ -62,7 +60,7 @@ def q_tilde(
 
 def _ou_filter_daily(q_tilde_arr: np.ndarray, decay: float) -> np.ndarray:
     """Single-day OU recursion starting from Ī_0 = 0 (scipy lfilter)."""
-    return lfilter([0.0, 1.0], [1.0, -decay], np.asarray(q_tilde_arr, dtype=float))
+    return lfilter([1.0], [1.0, -decay], np.asarray(q_tilde_arr, dtype=float))
 
 
 def _ou_filter_carry(q_tilde_arr: np.ndarray, decay: float, i0: float) -> np.ndarray:

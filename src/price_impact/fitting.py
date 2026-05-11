@@ -391,3 +391,10 @@ def per_stock_lambda(baseline_df: pd.DataFrame) -> pd.Series:
     """Mean λ over all rolling windows, per stock. Use as `lam_lookup` for
     a scalar-λ backtest."""
     return baseline_df.groupby("stock")["lambda"].mean()
+
+
+def per_stock_lambda_stats(baseline_df: pd.DataFrame) -> pd.DataFrame:
+    """Mean, std, and t-stat of λ over all rolling windows, per stock."""
+    df = baseline_df.groupby("stock")["lambda"].agg(["mean", "std"])
+    df["t_stat"] = df["mean"] / df["std"]
+    return df

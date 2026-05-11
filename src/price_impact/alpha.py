@@ -1,17 +1,18 @@
-"""Synthetic alpha generation (per project.ipynb cell 23).
+"""Synthetic alpha generation.
 
 Builds an unbiased, target-correlated alpha:
 
     α_t = x · r^h_t  +  y · (W_{t+h} - W_t) / P_t
 
-with  x = 1  and  y = sqrt( (1/ρ² - 1) · Var(r^h) / E[P^{-2}] · 1/h )
+with  x = ρ²  and  y = ρ · √(1 − ρ²) · √( Var(r^h) / E[P^{-2}] / h )
 chosen so that:
 
   1. E[r^h | α] = α               (unbiasedness — α is a fair forecast)
   2. Corr(α^h, r^h) = ρ            (target correlation)
 
-Per project.ipynb, this is the "correct" version (x = 1), distinct from
-complete_pipeline.ipynb's x = ρ² variant.
+Derivation: unbiasedness requires Var(α) = Cov(α, r^h) = x · Var(r^h), which
+gives Corr(α, r^h) = √x = ρ, hence x = ρ².  The noise scale y follows from
+the residual variance Var(α) − x² · Var(r^h) = y² · E[P^{-2}] · h.
 """
 
 from __future__ import annotations
@@ -58,9 +59,11 @@ def create_synthetic_alpha(
             E_Pinv2=("mid", lambda p: (1.0 / p**2).mean()),
         )
     )
-    stock_params["x"] = 1.0
-    stock_params["y"] = np.sqrt(
-        (1.0 / rho**2 - 1.0) * stock_params["var_r"] / stock_params["E_Pinv2"] / h_bins
+    stock_params["x"] = rho**2
+    stock_params["y"] = (
+        rho
+        * np.sqrt(1.0 - rho**2)
+        * np.sqrt(stock_params["var_r"] / stock_params["E_Pinv2"] / h_bins)
     )
 
     df = df.merge(stock_params[["x", "y"]].reset_index(), on="stock", how="left")
