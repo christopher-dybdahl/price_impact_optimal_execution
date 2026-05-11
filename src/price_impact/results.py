@@ -20,6 +20,7 @@ Given a :class:`backtest.BacktestResult`, the helpers here compute:
     impact). Plot functions accept a `save_path` and otherwise just
     `plt.show()`. They never touch a global figure registry.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from .backtest import BacktestResult, DaySimulation
+    from .backtest import BacktestResult
 
 
 TRADING_DAYS_PER_YEAR = 252
@@ -43,17 +44,14 @@ def daily_pnl(result: "BacktestResult") -> pd.DataFrame:
     df = result.to_daily()
     if df.empty:
         return df
-    return (
-        df.groupby("date")[
-            ["pnl_mid", "pnl_sim", "impact_cost", "turnover", "max_impact_dislocation"]
-        ]
-        .agg(
-            pnl_mid=("pnl_mid", "sum"),
-            pnl_sim=("pnl_sim", "sum"),
-            impact_cost=("impact_cost", "sum"),
-            turnover=("turnover", "sum"),
-            max_impact=("max_impact_dislocation", "max"),
-        )
+    return df.groupby("date")[
+        ["pnl_mid", "pnl_sim", "impact_cost", "turnover", "max_impact_dislocation"]
+    ].agg(
+        pnl_mid=("pnl_mid", "sum"),
+        pnl_sim=("pnl_sim", "sum"),
+        impact_cost=("impact_cost", "sum"),
+        turnover=("turnover", "sum"),
+        max_impact=("max_impact_dislocation", "max"),
     )
 
 
@@ -74,7 +72,9 @@ def sharpe(daily: pd.DataFrame, col: str = "pnl_sim") -> float:
     return float(s.mean() / std * np.sqrt(TRADING_DAYS_PER_YEAR))
 
 
-def performance_metrics(result: "BacktestResult", strategy_name: str = "strategy") -> dict:
+def performance_metrics(
+    result: "BacktestResult", strategy_name: str = "strategy"
+) -> dict:
     """Single-strategy performance summary (Sharpe, total P&L, max DD, ...)."""
     daily = daily_pnl(result)
     if daily.empty:
@@ -198,7 +198,11 @@ def plot_cumulative_pnl(
     fig, ax = plt.subplots(figsize=(14, 5))
     ax.plot(cum_sim.index, cum_sim.values, label=f"net (sim) [{label}]", lw=1.5)
     ax.plot(
-        cum_mid.index, cum_mid.values, label=f"gross (mid) [{label}]", lw=1.2, ls="--",
+        cum_mid.index,
+        cum_mid.values,
+        label=f"gross (mid) [{label}]",
+        lw=1.2,
+        ls="--",
     )
     ax.axhline(0, color="k", lw=0.5)
     ax.set_ylabel("Cumulative P&L ($)")
@@ -209,8 +213,12 @@ def plot_cumulative_pnl(
     return fig
 
 
-def plot_drawdown(result: "BacktestResult", *, save_path: Path | str | None = None,
-                  label: str = "strategy"):
+def plot_drawdown(
+    result: "BacktestResult",
+    *,
+    save_path: Path | str | None = None,
+    label: str = "strategy",
+):
     import matplotlib.pyplot as plt
 
     daily = daily_pnl(result)
@@ -238,7 +246,9 @@ def plot_sample_price_paths(
     import matplotlib.pyplot as plt
 
     date_ts = pd.Timestamp(date)
-    sims = [d for d in result.days if d.stock == stock and pd.Timestamp(d.date) == date_ts]
+    sims = [
+        d for d in result.days if d.stock == stock and pd.Timestamp(d.date) == date_ts
+    ]
     if not sims:
         raise KeyError(f"No simulation for ({stock!r}, {date})")
     d = sims[0]
@@ -274,8 +284,10 @@ def plot_cumulative_impact(
 
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.boxplot(
-        [daily[daily["stock"] == s]["max_impact_dislocation"].values
-         for s in sorted(daily["stock"].unique())],
+        [
+            daily[daily["stock"] == s]["max_impact_dislocation"].values
+            for s in sorted(daily["stock"].unique())
+        ],
         labels=sorted(daily["stock"].unique()),
         showfliers=False,
     )

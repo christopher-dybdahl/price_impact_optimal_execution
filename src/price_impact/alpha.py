@@ -13,6 +13,7 @@ chosen so that:
 Per project.ipynb, this is the "correct" version (x = 1), distinct from
 complete_pipeline.ipynb's x = ρ² variant.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -59,10 +60,7 @@ def create_synthetic_alpha(
     )
     stock_params["x"] = 1.0
     stock_params["y"] = np.sqrt(
-        (1.0 / rho**2 - 1.0)
-        * stock_params["var_r"]
-        / stock_params["E_Pinv2"]
-        / h_bins
+        (1.0 / rho**2 - 1.0) * stock_params["var_r"] / stock_params["E_Pinv2"] / h_bins
     )
 
     df = df.merge(stock_params[["x", "y"]].reset_index(), on="stock", how="left")
@@ -78,8 +76,6 @@ def create_synthetic_alpha(
             )
         )
         print(emp.round(6).to_string())
-        print(
-            f"Target ρ = {rho},  Mean empirical ρ = {emp['corr'].mean():.4f}"
-        )
+        print(f"Target ρ = {rho},  Mean empirical ρ = {emp['corr'].mean():.4f}")
 
     return df[["stock", "date", "time", "alpha", "fwd_ret"]].reset_index(drop=True)

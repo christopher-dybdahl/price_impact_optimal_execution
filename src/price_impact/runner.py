@@ -15,6 +15,7 @@ chosen carry mode, computes metrics + TCA, saves all plots and tables to
 ``saved/<cfg.name>/``, and returns the :class:`backtest.BacktestResult`
 along with the summary tables.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,13 +23,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
-import numpy as np
 import pandas as pd
 
 from . import results as rep
 from .backtest import (
     BacktestResult,
-    make_fixed_provider,
     make_optimal_provider,
     run_backtest,
 )
@@ -46,13 +45,13 @@ class BacktestConfig:
     """All knobs for one backtest run. Pass to :func:`run_and_save`."""
 
     name: str
-    model_type: ModelType = "linear"           # 'linear' (OW) or 'sqrt' (AFS)
-    strategy: str = "ow"                       # 'ow' | 'afs' | 'ext_ow'
-    carry: CarryMode = "daily"                 # 'daily' | 'multi'
+    model_type: ModelType = "linear"  # 'linear' (OW) or 'sqrt' (AFS)
+    strategy: str = "ow"  # 'ow' | 'afs' | 'ext_ow'
+    carry: CarryMode = "daily"  # 'daily' | 'multi'
     half_life_minutes: float = 60.0
-    tau_bins: int = 180                        # τ explanation horizon
-    rho: float = 0.05                          # synthetic-alpha correlation target
-    h_alpha_bins: int = 1                      # α horizon
+    tau_bins: int = 180  # τ explanation horizon
+    rho: float = 0.05  # synthetic-alpha correlation target
+    h_alpha_bins: int = 1  # α horizon
     max_position_adv: float = 0.005
     liquidation_minutes: int = 30
     overnight_minutes: float = 16 * 60
@@ -119,7 +118,9 @@ def build_merged_panel(
         df["fwd_ret"] = df["fwd_ret"].fillna(0.0)
     if daily_stats is not None:
         df = df.merge(
-            daily_stats[["sigma", "ADV"]].reset_index(), on=["stock", "date"], how="left"
+            daily_stats[["sigma", "ADV"]].reset_index(),
+            on=["stock", "date"],
+            how="left",
         )
     return df
 

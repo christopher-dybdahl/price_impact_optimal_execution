@@ -14,6 +14,7 @@ The carry mode (`carry='daily'` vs `carry='multi'`) selects which Ī column
 to use as the regressor, so the same fitting machinery works for both the
 daily-reset and the multi-day carry impact states.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -86,11 +87,7 @@ def daily_sufficient_stats(features: pd.DataFrame) -> pd.DataFrame:
     df["xx"] = df["x"] ** 2
     df["yy"] = df["y"] ** 2
     df["count"] = 1
-    summary = (
-        df.groupby(["stock", "date"], sort=False)[STAT_COLS]
-        .sum()
-        .reset_index()
-    )
+    summary = df.groupby(["stock", "date"], sort=False)[STAT_COLS].sum().reset_index()
     summary["month"] = pd.to_datetime(summary["date"]).dt.month
     return summary.loc[summary["yy"] > 1e-12].copy()
 
@@ -254,9 +251,7 @@ def regularised_bin_means(
     train_stats: pd.DataFrame, g_bar: pd.Series, gamma: float
 ) -> pd.DataFrame:
     merged = train_stats.merge(g_bar.rename("g_bar"), on="bin", how="left")
-    merged["g_reg"] = (merged["sy"] + gamma * merged["g_bar"]) / (
-        merged["n"] + gamma
-    )
+    merged["g_reg"] = (merged["sy"] + gamma * merged["g_bar"]) / (merged["n"] + gamma)
     return merged
 
 
@@ -266,7 +261,11 @@ def predict_and_score(
     merged = test_stats.merge(
         g_reg_lookup[["stock", "bin", "g_reg"]], on=["stock", "bin"], how="inner"
     )
-    ss_res = merged["syy"] - 2 * merged["g_reg"] * merged["sy"] + merged["g_reg"] ** 2 * merged["n"]
+    ss_res = (
+        merged["syy"]
+        - 2 * merged["g_reg"] * merged["sy"]
+        + merged["g_reg"] ** 2 * merged["n"]
+    )
     total_n = merged["n"].sum()
     total_sy = merged["sy"].sum()
     total_syy = merged["syy"].sum()
@@ -323,8 +322,12 @@ def rolling_nonparametric(
         test_month = train_month + 1
         val_month = train_month + 2
         train_stats, bin_edges = build_bin_stats(features, train_month, n_bins=n_bins)
-        test_stats, _ = build_bin_stats(features, test_month, n_bins=n_bins, bin_edges=bin_edges)
-        val_stats, _ = build_bin_stats(features, val_month, n_bins=n_bins, bin_edges=bin_edges)
+        test_stats, _ = build_bin_stats(
+            features, test_month, n_bins=n_bins, bin_edges=bin_edges
+        )
+        val_stats, _ = build_bin_stats(
+            features, val_month, n_bins=n_bins, bin_edges=bin_edges
+        )
         if train_stats.empty or test_stats.empty or val_stats.empty:
             continue
 

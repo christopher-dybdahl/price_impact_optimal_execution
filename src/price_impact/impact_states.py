@@ -18,6 +18,7 @@ with model-specific normalised flow
         linear (OW):   q̃_t = σ_d * q_t / ADV_d
         sqrt  (AFS):   q̃_t = σ_d * sign(q_t) * sqrt(|q_t| / ADV_d).
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -39,14 +40,20 @@ def decay_from_half_life(half_life_minutes: float) -> float:
     return 1.0 - beta_from_half_life(half_life_minutes)
 
 
-def overnight_decay(half_life_minutes: float, overnight_minutes: float = 16 * 60) -> float:
+def overnight_decay(
+    half_life_minutes: float, overnight_minutes: float = 16 * 60
+) -> float:
     """Multiplicative decay applied to Ī across an overnight gap (no flow)."""
     if overnight_minutes <= 0:
         return 1.0
-    return float(decay_from_half_life(half_life_minutes) ** (overnight_minutes * BINS_PER_MINUTE))
+    return float(
+        decay_from_half_life(half_life_minutes) ** (overnight_minutes * BINS_PER_MINUTE)
+    )
 
 
-def q_tilde(orderflow: np.ndarray, sigma: float, adv: float, model_type: ModelType) -> np.ndarray:
+def q_tilde(
+    orderflow: np.ndarray, sigma: float, adv: float, model_type: ModelType
+) -> np.ndarray:
     q = np.asarray(orderflow, dtype=float)
     if model_type == "linear":
         return sigma * q / adv
@@ -75,7 +82,7 @@ def compute_impact_states(
     daily_stats: pd.DataFrame,
     half_life_minutes: float,
     model_type: ModelType = "linear",
-    overnight_minutes: float = 16 * 60,
+    overnight_minutes: float = 0.0,
     stock_col: str = "stock",
     date_col: str = "date",
     time_col: str = "time",

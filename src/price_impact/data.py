@@ -4,6 +4,7 @@ The intraday grid is 10-second bins. Input CSVs `bin{YEAR}{MM}.csv` live in
 the project's `data/` directory and carry columns: stock, date, time, mid,
 trade, orderFlow (and others).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -104,9 +105,7 @@ def compute_daily_stats(
     return pd.concat(out_parts, ignore_index=True).set_index(["stock", "date"])
 
 
-def compute_volume_curves(
-    data: pd.DataFrame, lookback_days: int = 20
-) -> pd.DataFrame:
+def compute_volume_curves(data: pd.DataFrame, lookback_days: int = 20) -> pd.DataFrame:
     """20-day trailing average remaining volume curve per (stock, time).
 
     The "curve" U(t) is the trailing fraction of daily volume that is *still
@@ -143,7 +142,9 @@ class PanelData:
     def n_stocks(self) -> int:
         return len(self.stocks)
 
-    def attach_daily(self, df: pd.DataFrame, columns: list[str] | None = None) -> pd.DataFrame:
+    def attach_daily(
+        self, df: pd.DataFrame, columns: list[str] | None = None
+    ) -> pd.DataFrame:
         cols = columns or ["sigma", "ADV"]
         return df.merge(
             self.daily_stats[cols].reset_index(), on=["stock", "date"], how="inner"

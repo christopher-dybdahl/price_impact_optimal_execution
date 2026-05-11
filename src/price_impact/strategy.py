@@ -18,6 +18,7 @@ We expose three strategies:
 The "model" object pattern lets a downstream backtest pick the right
 strategy generically without branching.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -153,9 +154,7 @@ STRATEGIES: dict[str, StrategyFn] = {
 def get_strategy(name: str) -> StrategyFn:
     key = name.lower()
     if key not in STRATEGIES:
-        raise KeyError(
-            f"Unknown strategy {name!r}; choose from {sorted(STRATEGIES)}"
-        )
+        raise KeyError(f"Unknown strategy {name!r}; choose from {sorted(STRATEGIES)}")
     return STRATEGIES[key]
 
 
@@ -171,11 +170,11 @@ class ImpactModel:
     g_t = λ_t * Ī_t instead of g = λ * Ī.
     """
 
-    model_type: ModelType                          # 'linear' or 'sqrt'
+    model_type: ModelType  # 'linear' or 'sqrt'
     half_life_minutes: float
-    lam_lookup: dict[str, float]                   # stock -> scalar λ
+    lam_lookup: dict[str, float]  # stock -> scalar λ
     lam_t_lookup: dict[tuple[str, object], np.ndarray] | None = None
-    strategy: str = "ow"                           # 'ow' | 'afs' | 'ext_ow'
+    strategy: str = "ow"  # 'ow' | 'afs' | 'ext_ow'
 
     def is_time_dependent(self) -> bool:
         return self.lam_t_lookup is not None

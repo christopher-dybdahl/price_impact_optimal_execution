@@ -18,6 +18,7 @@ This module intentionally keeps a *single* simulator entrypoint
 (:func:`run_backtest`) and a small set of helpers — anything more belongs in
 :mod:`results` (reporting) or :mod:`runner` (orchestration).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -27,7 +28,6 @@ import numpy as np
 import pandas as pd
 
 from .impact_states import (
-    BINS_PER_MINUTE,
     ModelType,
     decay_from_half_life,
     overnight_decay,
@@ -176,8 +176,8 @@ class DaySimulation:
     sigma: float
     adv: float
     lam: float | np.ndarray
-    pnl_mid: float          # mark-to-market on undistorted mid
-    pnl_sim: float          # mark-to-market on Waelbroeck simulated price
+    pnl_mid: float  # mark-to-market on undistorted mid
+    pnl_sim: float  # mark-to-market on Waelbroeck simulated price
 
 
 @dataclass
@@ -375,7 +375,9 @@ def make_optimal_provider(
         # For time-dependent λ, pass the array; the simple OW strategy ignores
         # vector λ (it expects scalar) so callers using ext-OW must supply
         # their own provider.
-        lam_arg = ctx.lam if not isinstance(ctx.lam, np.ndarray) else float(np.mean(ctx.lam))
+        lam_arg = (
+            ctx.lam if not isinstance(ctx.lam, np.ndarray) else float(np.mean(ctx.lam))
+        )
         return strategy_fn(
             alpha=alpha,
             sigma=ctx.sigma,
