@@ -54,7 +54,7 @@ class BacktestConfig:
     h_alpha_bins: int = 1  # α horizon
     max_position_adv: float = 0.005
     liquidation_minutes: int = 30
-    overnight_minutes: float = 16 * 60
+    overnight_minutes: float = 16 * 60          # retained for compatibility; no multi-day impact decay
     seed: int = 42
     save_root: Path | str = field(default_factory=lambda: Path("saved"))
 
@@ -104,7 +104,10 @@ def build_merged_panel(
     """Merge bins with alpha and (optionally) daily stats. The simulator
     consumes σ / ADV from `daily_stats` separately; merging is only for
     column access inside the trade provider."""
-    df = bins[["stock", "date", "time", "mid", "orderFlow"]].copy()
+    cols = ["stock", "date", "time", "mid", "orderFlow"]
+    if "trade" in bins.columns:
+        cols.append("trade")
+    df = bins[cols].copy()
     df["date"] = pd.to_datetime(df["date"])
     if alphas is not None:
         a = alphas[["stock", "date", "time", "alpha", "fwd_ret"]].copy()
@@ -187,19 +190,22 @@ def save_artifacts(
     rep.plot_cumulative_pnl(result, save_path=save_dir / "cum_pnl.png", label=cfg.name)
     rep.plot_drawdown(result, save_path=save_dir / "drawdown.png", label=cfg.name)
     rep.plot_cumulative_impact(result, save_path=save_dir / "impact_dislocation.png")
+    sample_price_paths_plot = None
     if save_sample_paths is not None:
         stock, date = save_sample_paths
+        sample_price_paths_plot = save_dir / f"price_paths_{stock}_{pd.Timestamp(date).date()}.png"
         try:
             rep.plot_sample_price_paths(
                 result,
                 stock=stock,
                 date=date,
-                save_path=save_dir / f"path_{stock}_{pd.Timestamp(date).date()}.png",
+                save_path=sample_price_paths_plot,
             )
         except KeyError:
+            sample_price_paths_plot = None
             pass
 
-    return {
+    paths = {
         "dir": save_dir,
         "daily_pnl": save_dir / "daily_pnl.csv",
         "stock_day_pnl": save_dir / "stock_day_pnl.csv",
@@ -209,7 +215,11 @@ def save_artifacts(
         "config": save_dir / "config.json",
         "cum_pnl_plot": save_dir / "cum_pnl.png",
         "drawdown_plot": save_dir / "drawdown.png",
+        "impact_dislocation_plot": save_dir / "impact_dislocation.png",
     }
+    if sample_price_paths_plot is not None:
+        paths["sample_price_paths_plot"] = sample_price_paths_plot
+    return paths
 
 
 # ---------------------------------------------------------------------------

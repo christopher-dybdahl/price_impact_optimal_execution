@@ -2,14 +2,14 @@
 
 Given a :class:`backtest.BacktestResult`, the helpers here compute:
 
-  * daily / cumulative P&L on both the undistorted mid and the Waelbroeck
-    simulated price, plus drawdown;
+  * daily / cumulative P&L on the no-us Waelbroeck path and the with-us
+    Waelbroeck path, plus observed-mid diagnostics and drawdown;
   * a transaction-cost-analysis (TCA) breakdown that decomposes P&L into
     well-defined components and *does not* invent heuristic numbers:
 
-        Net P&L (sim)         = mark-to-market on Waelbroeck-distorted price
-        Gross P&L (mid)       = mark-to-market on undistorted mid (alpha capture)
-        Self-impact cost      = Gross - Net   (cost of pushing the price)
+        Net P&L (pert)        = mark-to-market on P_pert
+        Gross P&L (unpert)    = same position path marked on P_unpert
+        Self-impact cost      = Gross - Net   (cost of our flow channel)
         Predicted-α reward    = Σ α_t · q_t · P_t   (the signal we acted on)
         Realised-α reward     = Σ fwd_ret_t · X_t · P_t  (forward return × position)
 
@@ -45,12 +45,28 @@ def daily_pnl(result: "BacktestResult") -> pd.DataFrame:
     if df.empty:
         return df
     return df.groupby("date")[
-        ["pnl_mid", "pnl_sim", "impact_cost", "turnover", "max_impact_dislocation"]
+        [
+            "pnl_unpert",
+            "pnl_pert",
+            "pnl_mid_raw",
+            "pnl_mid",
+            "pnl_sim",
+            "impact_cost",
+            "turnover",
+            "day_volume",
+            "flow_flag_count",
+            "max_impact_dislocation",
+        ]
     ].agg(
+        pnl_unpert=("pnl_unpert", "sum"),
+        pnl_pert=("pnl_pert", "sum"),
+        pnl_mid_raw=("pnl_mid_raw", "sum"),
         pnl_mid=("pnl_mid", "sum"),
         pnl_sim=("pnl_sim", "sum"),
         impact_cost=("impact_cost", "sum"),
         turnover=("turnover", "sum"),
+        day_volume=("day_volume", "sum"),
+        flow_flag_count=("flow_flag_count", "sum"),
         max_impact=("max_impact_dislocation", "max"),
     )
 
@@ -80,24 +96,39 @@ def performance_metrics(
     if daily.empty:
         return {"strategy": strategy_name, "n_days": 0}
 
-    cum = cumulative_pnl(daily, "pnl_sim")
+    cum = cumulative_pnl(daily, "pnl_pert")
     dd = drawdown(cum)
 
     return {
         "strategy": strategy_name,
         "n_days": int(len(daily)),
         "n_stockdays": int(len(result.to_daily())),
+        "total_pnl_pert": float(daily["pnl_pert"].sum()),
+        "total_pnl_unpert": float(daily["pnl_unpert"].sum()),
+        "total_pnl_mid_raw": float(daily["pnl_mid_raw"].sum()),
         "total_pnl_sim": float(daily["pnl_sim"].sum()),
         "total_pnl_mid": float(daily["pnl_mid"].sum()),
         "total_impact_cost": float(daily["impact_cost"].sum()),
+        "mean_daily_pnl_pert": float(daily["pnl_pert"].mean()),
+        "std_daily_pnl_pert": float(daily["pnl_pert"].std()),
         "mean_daily_pnl_sim": float(daily["pnl_sim"].mean()),
         "std_daily_pnl_sim": float(daily["pnl_sim"].std()),
+        "sharpe_pert": sharpe(daily, "pnl_pert"),
+        "sharpe_unpert": sharpe(daily, "pnl_unpert"),
+        "sharpe_mid_raw": sharpe(daily, "pnl_mid_raw"),
         "sharpe_sim": sharpe(daily, "pnl_sim"),
         "sharpe_mid": sharpe(daily, "pnl_mid"),
         "max_drawdown": float(dd.min()),
         "max_impact_dislocation": float(daily["max_impact"].max()),
-        "win_rate": float((daily["pnl_sim"] > 0).mean()),
+        "win_rate": float((daily["pnl_pert"] > 0).mean()),
         "total_turnover": float(daily["turnover"].sum()),
+        "total_day_volume": float(daily["day_volume"].sum()),
+        "realized_participation": float(
+            daily["turnover"].sum() / daily["day_volume"].sum()
+        )
+        if daily["day_volume"].sum() > 0
+        else float("nan"),
+        "flow_flag_count": int(daily["flow_flag_count"].sum()),
     }
 
 
@@ -110,7 +141,7 @@ def tca_table(result: "BacktestResult") -> pd.DataFrame:
     Columns
     -------
     net_pnl, gross_pnl, impact_cost, predicted_alpha, realised_alpha,
-    turnover, gross_notional.
+    turnover, gross_notional, participation diagnostics.
 
     `predicted_alpha` and `realised_alpha` are only computed for stock-days
     that carry the `alpha` / `fwd_ret` columns; otherwise they are NaN.
@@ -120,18 +151,26 @@ def tca_table(result: "BacktestResult") -> pd.DataFrame:
         row: dict[str, float] = {
             "stock": d.stock,
             "date": d.date,
-            "net_pnl": d.pnl_sim,
-            "gross_pnl": d.pnl_mid,
-            "impact_cost": d.pnl_mid - d.pnl_sim,
-            "turnover": float(np.sum(np.abs(d.q_sim))),
-            "gross_notional": float(np.sum(np.abs(d.q_sim) * d.p_mid)),
+            "net_pnl": d.pnl_pert,
+            "gross_pnl": d.pnl_unpert,
+            "mid_raw_pnl": d.pnl_mid_raw,
+            "impact_cost": d.pnl_unpert - d.pnl_pert,
+            "turnover": float(np.sum(np.abs(d.q_us))),
+            "gross_notional": float(np.sum(np.abs(d.q_us) * d.p_pert)),
+            "day_participation": (
+                float(np.sum(np.abs(d.q_us)) / np.nansum(np.abs(d.volume)))
+                if d.volume is not None and np.nansum(np.abs(d.volume)) > 0
+                else float("nan")
+            ),
+            "flow_flag_count": float(d.flow_flag_count),
+            "max_delta_g": float(np.max(np.abs(d.delta_g))) if len(d.delta_g) else 0.0,
         }
         # Predicted-alpha reward: expected return implied by α times trade × price.
-        if d.alpha is not None and len(d.alpha) == len(d.q_sim):
-            mask = np.isfinite(d.alpha) & np.isfinite(d.q_sim)
+        if d.alpha is not None and len(d.alpha) == len(d.q_us):
+            mask = np.isfinite(d.alpha) & np.isfinite(d.q_us)
             if mask.any():
                 row["predicted_alpha"] = float(
-                    np.sum(d.alpha[mask] * d.q_sim[mask] * d.p_mid[mask])
+                    np.sum(d.alpha[mask] * d.q_us[mask] * d.p_unpert[mask])
                 )
             else:
                 row["predicted_alpha"] = float("nan")
@@ -142,7 +181,7 @@ def tca_table(result: "BacktestResult") -> pd.DataFrame:
             mask = np.isfinite(d.fwd_ret)
             if mask.any():
                 row["realised_alpha"] = float(
-                    np.sum(d.fwd_ret[mask] * d.position[mask] * d.p_mid[mask])
+                    np.sum(d.fwd_ret[mask] * d.position[mask] * d.p_unpert[mask])
                 )
             else:
                 row["realised_alpha"] = float("nan")
@@ -159,11 +198,13 @@ def tca_summary(tca: pd.DataFrame) -> pd.Series:
     cols = [
         "net_pnl",
         "gross_pnl",
+        "mid_raw_pnl",
         "impact_cost",
         "predicted_alpha",
         "realised_alpha",
         "turnover",
         "gross_notional",
+        "flow_flag_count",
     ]
     return tca[cols].sum(min_count=1)
 
@@ -190,23 +231,23 @@ def plot_cumulative_pnl(
     import matplotlib.pyplot as plt
 
     daily = daily_pnl(result)
-    cum_sim = cumulative_pnl(daily, "pnl_sim")
-    cum_mid = cumulative_pnl(daily, "pnl_mid")
+    cum_pert = cumulative_pnl(daily, "pnl_pert")
+    cum_unpert = cumulative_pnl(daily, "pnl_unpert")
 
     # Underscore-prefixed labels are silently skipped by matplotlib's legend
     # heuristic, so build the label with "net (..) / gross (..)" up front.
     fig, ax = plt.subplots(figsize=(14, 5))
-    ax.plot(cum_sim.index, cum_sim.values, label=f"net (sim) [{label}]", lw=1.5)
+    ax.plot(cum_pert.index, cum_pert.values, label=f"net (pert) [{label}]", lw=1.5)
     ax.plot(
-        cum_mid.index,
-        cum_mid.values,
-        label=f"gross (mid) [{label}]",
+        cum_unpert.index,
+        cum_unpert.values,
+        label=f"gross (unpert) [{label}]",
         lw=1.2,
         ls="--",
     )
     ax.axhline(0, color="k", lw=0.5)
     ax.set_ylabel("Cumulative P&L ($)")
-    ax.set_title("Cumulative P&L (net vs gross)")
+    ax.set_title("Cumulative P&L (perturbed vs unperturbed)")
     ax.legend()
     plt.tight_layout()
     _save_or_show(fig, save_path)
@@ -222,7 +263,7 @@ def plot_drawdown(
     import matplotlib.pyplot as plt
 
     daily = daily_pnl(result)
-    cum = cumulative_pnl(daily, "pnl_sim")
+    cum = cumulative_pnl(daily, "pnl_pert")
     dd = drawdown(cum)
 
     fig, ax = plt.subplots(figsize=(14, 4))
@@ -242,7 +283,7 @@ def plot_sample_price_paths(
     *,
     save_path: Path | str | None = None,
 ):
-    """Plot the undistorted mid and the Waelbroeck-distorted path for one day."""
+    """Plot observed mid plus no-us and with-us Waelbroeck paths for one day."""
     import matplotlib.pyplot as plt
 
     date_ts = pd.Timestamp(date)
@@ -254,14 +295,16 @@ def plot_sample_price_paths(
     d = sims[0]
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 7), sharex=True)
-    axes[0].plot(d.p_mid, label="P_mid (undistorted)", lw=1.0)
-    axes[0].plot(d.p_sim, label="P_sim (Waelbroeck)", lw=1.0, ls="--")
+    axes[0].plot(d.p_mid, label="P_mid (observed baseline)", lw=1.0)
+    axes[0].plot(d.p_unpert, label="P_unpert (others only)", lw=1.0, ls=":")
+    axes[0].plot(d.p_pert, label="P_pert (full aggregate)", lw=1.0, ls="--")
     axes[0].set_ylabel("Price")
     axes[0].legend()
     axes[0].set_title(f"{stock} {date_ts.date()}  —  price paths")
 
-    axes[1].plot(d.g_sim, label=r"$\lambda \cdot \bar I^{sim}$", lw=1.0)
-    axes[1].plot(d.g_ref, label=r"$\lambda \cdot \bar I^{ref}$", lw=1.0, ls=":")
+    axes[1].plot(d.g_full, label=r"$\lambda \cdot \bar I^{full}$", lw=1.0)
+    axes[1].plot(d.g_others, label=r"$\lambda \cdot \bar I^{others}$", lw=1.0, ls=":")
+    axes[1].plot(d.delta_g, label=r"$\Delta g$ (us)", lw=1.0, ls="--")
     axes[1].axhline(0, color="k", lw=0.5)
     axes[1].set_ylabel("Cumulative impact (rel.)")
     axes[1].legend()
@@ -275,7 +318,7 @@ def plot_cumulative_impact(
     *,
     save_path: Path | str | None = None,
 ):
-    """Cross-stock distribution of max(|λ Ī^sim|) per day (impact dislocation)."""
+    """Cross-stock distribution of max(|Δg|) per day (our impact dislocation)."""
     import matplotlib.pyplot as plt
 
     daily = result.to_daily()
@@ -291,8 +334,8 @@ def plot_cumulative_impact(
         labels=sorted(daily["stock"].unique()),
         showfliers=False,
     )
-    ax.set_ylabel(r"max $|\lambda \bar I^{sim}|$ per day")
-    ax.set_title("Impact dislocation by stock")
+    ax.set_ylabel(r"max $|\Delta g|$ per day")
+    ax.set_title("With-us vs no-us impact dislocation by stock")
     ax.tick_params(axis="x", rotation=45)
     plt.tight_layout()
     _save_or_show(fig, save_path)

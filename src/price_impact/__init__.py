@@ -16,7 +16,8 @@ Public surface (re-exports the most-used names so the notebook stays light):
     ext_ow_optimal_strategy_timedep_lambda, ImpactModel
   Backtest
     run_backtest, waelbroeck_prices, make_optimal_provider,
-    make_fixed_provider, BacktestResult, DaySimulation
+    make_fixed_provider, BacktestResult, DaySimulation. The simulator uses
+    q_agg / q_us / q_others accounting and returns P_unpert / P_pert paths.
   Results
     performance_metrics, tca_table, tca_summary, daily_pnl, cumulative_pnl,
     drawdown, sharpe, plot_cumulative_pnl, plot_drawdown,
