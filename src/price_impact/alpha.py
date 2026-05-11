@@ -26,7 +26,7 @@ def create_synthetic_alpha(
     rho: float = 0.05,
     h_bins: int = 1,
     seed: int = 42,
-    price_col: str = "mid",
+    price_col: str = "midEnd",
     verbose: bool = False,
 ) -> pd.DataFrame:
     """Per-stock synthetic alpha with target correlation `rho` and h-bin horizon.

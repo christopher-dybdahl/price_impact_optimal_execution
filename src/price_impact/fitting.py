@@ -43,7 +43,7 @@ def build_regression_features(
     tau_bins: int,
     carry: CarryMode = "daily",
     start_time: str = "10:00:00",
-    price_col: str = "mid",
+    price_col: str = "midEnd",
 ) -> pd.DataFrame:
     """Build per-bin (x, y) regression features for impact-model OLS.
 
@@ -188,7 +188,7 @@ def half_life_grid_search(
     offset: int = 2,
     overnight_minutes: float = 16 * 60,
     start_time: str = "10:00:00",
-    price_col: str = "mid",
+    price_col: str = "midEnd",
     progress: bool = False,
 ) -> pd.DataFrame:
     """Recompute impact states for each H in the grid; fit rolling baseline;
