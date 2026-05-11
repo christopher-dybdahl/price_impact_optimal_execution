@@ -21,7 +21,7 @@ The "unperturbed" state is driven by q_others and the "perturbed" state by
 q_agg. The simulator accepts **any** signed trade path `q_us` (not only the
 OW-optimal one) and supports both `carry='daily'` (reset Ī to 0 each day) and
 `carry='multi'` (carry both impact states and inventory across days with
-overnight decay).
+no overnight impact decay).
 
 This module intentionally keeps a *single* simulator entrypoint
 (:func:`run_backtest`) and a small set of helpers — anything more belongs in
@@ -36,10 +36,8 @@ import numpy as np
 import pandas as pd
 
 from .impact_states import (
-    BINS_PER_MINUTE,
     ModelType,
     decay_from_half_life,
-    overnight_decay,
     q_tilde,
 )
 from .strategy import ImpactModel
@@ -50,14 +48,25 @@ CarryMode = Literal["daily", "multi"]
 # ---------------------------------------------------------------------------
 # Core recursion.
 # ---------------------------------------------------------------------------
-def ou_recursion(qt: np.ndarray, decay: float, i0: float = 0.0) -> np.ndarray:
-    """Ī_{t+1} = decay * Ī_t + q̃_t  with Ī_0 = i0."""
+def ou_recursion(
+    qt: np.ndarray,
+    decay: float,
+    i0: float = 0.0,
+    *,
+    no_initial_decay: bool = False,
+) -> np.ndarray:
+    """Ī_{t+1} = decay * Ī_t + q̃_t  with Ī_0 = i0.
+
+    When carrying across sessions, ``no_initial_decay`` makes the first bin
+    start exactly from ``i0`` rather than applying a synthetic overnight decay
+    step before the first observed flow.
+    """
     qt = np.asarray(qt, dtype=float)
     n = qt.shape[0]
     out = np.empty(n)
     state = float(i0)
     for t in range(n):
-        state = decay * state + qt[t]
+        state = (state if no_initial_decay and t == 0 else decay * state) + qt[t]
         out[t] = state
     return out
 
@@ -73,6 +82,7 @@ def waelbroeck_prices(
     model_type: ModelType = "linear",
     i_others0: float = 0.0,
     i_full0: float = 0.0,
+    no_initial_decay: bool = False,
 ) -> dict[str, np.ndarray]:
     """Simulate one (stock, date) session.
 
@@ -117,8 +127,10 @@ def waelbroeck_prices(
     qt_full = q_tilde(q_agg, sigma, adv, model_type)
     decay = decay_from_half_life(half_life_minutes)
 
-    i_others = ou_recursion(qt_others, decay, i_others0)
-    i_full = ou_recursion(qt_full, decay, i_full0)
+    i_others = ou_recursion(
+        qt_others, decay, i_others0, no_initial_decay=no_initial_decay
+    )
+    i_full = ou_recursion(qt_full, decay, i_full0, no_initial_decay=no_initial_decay)
 
     lam_arr = np.broadcast_to(np.asarray(lam, dtype=float), (n,))
     g_others = lam_arr * i_others
@@ -326,13 +338,17 @@ def run_backtest(
         DataFrame indexed by (stock, date) with at least `sigma` and `ADV`.
     carry
         'daily' — reset Ī and position at the start of each day.
-        'multi' — carry Ī and inventory across days within a stock, with
-        overnight decay applied between sessions.
+        'multi' — carry Ī and inventory across days within a stock. The next
+        session's impact state starts exactly where the previous session ended,
+        as if trading were continuous.
+    overnight_minutes
+        Retained for API compatibility; multi-day impact carry does not apply
+        overnight decay.
     """
     if carry not in ("daily", "multi"):
         raise ValueError("carry must be 'daily' or 'multi'")
 
-    ovn = overnight_decay(model.half_life_minutes, overnight_minutes)
+    _ = overnight_minutes
     days: list[DaySimulation] = []
 
     df = merged.sort_values(["stock", "date", time_col]).reset_index(drop=True)
@@ -404,6 +420,7 @@ def run_backtest(
                 model_type=model.model_type,
                 i_others0=i_others_carry if carry == "multi" else 0.0,
                 i_full0=i_full_carry if carry == "multi" else 0.0,
+                no_initial_decay=carry == "multi",
             )
 
             position = sim["position"] + (pos_carry if carry == "multi" else 0.0)
@@ -462,8 +479,8 @@ def run_backtest(
             )
 
             if carry == "multi":
-                i_others_carry = float(sim["i_others"][-1]) * ovn
-                i_full_carry = float(sim["i_full"][-1]) * ovn
+                i_others_carry = float(sim["i_others"][-1])
+                i_full_carry = float(sim["i_full"][-1])
                 pos_carry = float(position[-1])
 
     result = BacktestResult(days=days, model=model)

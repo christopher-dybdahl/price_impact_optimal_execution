@@ -3,7 +3,7 @@
   "model_type": "linear",
   "strategy": "ow",
   "carry": "multi",
-  "half_life_minutes": 105,
+  "half_life_minutes": 52.5,
   "tau_bins": 180,
   "rho": 0.05,
   "h_alpha_bins": 1,

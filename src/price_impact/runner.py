@@ -55,7 +55,7 @@ class BacktestConfig:
     h_alpha_bins: int = 1                      # α horizon
     max_position_adv: float = 0.005
     liquidation_minutes: int = 30
-    overnight_minutes: float = 16 * 60
+    overnight_minutes: float = 16 * 60          # retained for compatibility; no multi-day impact decay
     seed: int = 42
     save_root: Path | str = field(default_factory=lambda: Path("saved"))
 

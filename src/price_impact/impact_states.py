@@ -5,8 +5,8 @@ so that downstream consumers (fitting, backtesting) can pick whichever they
 need without recomputing:
 
     - `I_bar_daily` : reset Ī to 0 at the start of each (stock, date).
-    - `I_bar_multi` : carry Ī across days within a stock, with an overnight
-                      decay applied between sessions (no flow during the gap).
+    - `I_bar_multi` : carry Ī across days within a stock exactly as it ended
+                      on the previous session, with no overnight decay.
 
 The recursion is the OW/AFS-style OU discretisation
 
@@ -59,13 +59,17 @@ def _ou_filter_daily(q_tilde_arr: np.ndarray, decay: float) -> np.ndarray:
 
 
 def _ou_filter_carry(q_tilde_arr: np.ndarray, decay: float, i0: float) -> np.ndarray:
-    """OU recursion starting from a non-zero initial state."""
+    """OU recursion starting from a non-zero initial state.
+
+    The first bin starts exactly from ``i0`` rather than applying a synthetic
+    overnight decay step before the first observed flow.
+    """
     qt = np.asarray(q_tilde_arr, dtype=float)
     n = qt.shape[0]
     out = np.empty(n)
     state = float(i0)
     for t in range(n):
-        state = decay * state + qt[t]
+        state = (state if t == 0 else decay * state) + qt[t]
         out[t] = state
     return out
 
@@ -83,6 +87,10 @@ def compute_impact_states(
 ) -> pd.DataFrame:
     """Compute both daily-reset and multi-day impact states on the bin panel.
 
+    ``overnight_minutes`` is retained for API compatibility. Multi-day carry
+    intentionally applies no overnight decay: the next session starts from the
+    previous session's closing impact state, as if trading were continuous.
+
     Returns a DataFrame aligned to ``data`` with columns:
         [stock, date, time, q_tilde, I_bar_daily, I_bar_multi]
     """
@@ -94,7 +102,7 @@ def compute_impact_states(
     df = df.sort_values([stock_col, date_col, time_col]).reset_index(drop=True)
 
     decay = decay_from_half_life(half_life_minutes)
-    ovn = overnight_decay(half_life_minutes, overnight_minutes)
+    _ = overnight_minutes
 
     # Vectorised q_tilde.
     if model_type == "linear":
@@ -111,7 +119,7 @@ def compute_impact_states(
         lambda x: _ou_filter_daily(x.values, decay)
     )
 
-    # Multi-day Ī: carry across days within a stock, with overnight decay.
+    # Multi-day Ī: carry across days within a stock without overnight decay.
     multi_parts: list[np.ndarray] = []
     indices: list[np.ndarray] = []
     for _, gs in df.groupby(stock_col, sort=False):
@@ -122,7 +130,7 @@ def compute_impact_states(
             i_day = _ou_filter_carry(qt, decay, i0)
             multi_parts.append(i_day)
             indices.append(gd_sorted.index.to_numpy())
-            i0 = float(i_day[-1]) * ovn if len(i_day) else i0 * ovn
+            i0 = float(i_day[-1]) if len(i_day) else i0
 
     flat_idx = np.concatenate(indices) if indices else np.empty(0, dtype=int)
     flat_vals = np.concatenate(multi_parts) if multi_parts else np.empty(0)
