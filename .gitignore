@@ -1,0 +1,14 @@
+data/
+.DS_Store
+*.pyc
+__pycache__/
+
+# LaTeX build artefacts.
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# VSCode
+.vscode/settings.json

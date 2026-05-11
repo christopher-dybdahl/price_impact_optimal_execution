@@ -1,0 +1,15 @@
+,value
+strategy,sens_H_120
+n_days,250
+n_stockdays,4902
+total_pnl_sim,53280.751673526625
+total_pnl_mid,60935.94518708344
+total_impact_cost,7655.193513556807
+mean_daily_pnl_sim,213.1230066941065
+std_daily_pnl_sim,1038.937650886718
+sharpe_sim,3.256425294998432
+sharpe_mid,4.093617036332502
+max_drawdown,-7496.451244786127
+max_impact_dislocation,3.676955302680414e-05
+win_rate,0.628
+total_turnover,41984781.26359813

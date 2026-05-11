@@ -1,0 +1,15 @@
+,value
+strategy,sens_rho_10
+n_days,250
+n_stockdays,4902
+total_pnl_sim,250937.15350579337
+total_pnl_mid,263344.83399206394
+total_impact_cost,12407.68048627062
+mean_daily_pnl_sim,1003.7486140231734
+std_daily_pnl_sim,1728.2123205986331
+sharpe_sim,9.219940790415786
+sharpe_mid,10.021047499748592
+max_drawdown,-10927.24361057242
+max_impact_dislocation,6.415593672819273e-05
+win_rate,0.812
+total_turnover,92754482.40891878

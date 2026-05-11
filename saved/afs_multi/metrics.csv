@@ -1,0 +1,15 @@
+,value
+strategy,afs_multi
+n_days,250
+n_stockdays,4902
+total_pnl_sim,352558.06297225587
+total_pnl_mid,482557.3745582681
+total_impact_cost,129999.31158601222
+mean_daily_pnl_sim,1410.2322518890235
+std_daily_pnl_sim,12922.80666332221
+sharpe_sim,1.7323437206241168
+sharpe_mid,2.166807876581093
+max_drawdown,-73841.09962728858
+max_impact_dislocation,0.001868936963835448
+win_rate,0.56
+total_turnover,86577597.52110374

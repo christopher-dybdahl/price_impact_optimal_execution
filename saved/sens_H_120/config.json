@@ -1,0 +1,15 @@
+{
+  "name": "sens_H_120",
+  "model_type": "linear",
+  "strategy": "ow",
+  "carry": "daily",
+  "half_life_minutes": 120.0,
+  "tau_bins": 720,
+  "rho": 0.05,
+  "h_alpha_bins": 1,
+  "max_position_adv": 0.005,
+  "liquidation_minutes": 30,
+  "overnight_minutes": 960,
+  "seed": 42,
+  "save_root": "/Users/AnranSeverac/PriceImpact/final_project/saved"
+}

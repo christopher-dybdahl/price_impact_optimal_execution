@@ -1,0 +1,15 @@
+,value
+strategy,ow_multi
+n_days,250
+n_stockdays,4902
+total_pnl_sim,337585.53155583894
+total_pnl_mid,435398.61293913267
+total_impact_cost,97813.08138329358
+mean_daily_pnl_sim,1350.3421262233558
+std_daily_pnl_sim,13327.794623718259
+sharpe_sim,1.608369374697553
+sharpe_mid,1.9046688617944714
+max_drawdown,-82817.54711353514
+max_impact_dislocation,6.386696765259376e-05
+win_rate,0.544
+total_turnover,84020323.42243074

@@ -1,0 +1,15 @@
+,value
+strategy,sens_signal_delay_1min
+n_days,250
+n_stockdays,4902
+total_pnl_sim,-8401.288917882732
+total_pnl_mid,-3639.6239937068603
+total_impact_cost,4761.664924175875
+mean_daily_pnl_sim,-33.60515567153093
+std_daily_pnl_sim,1675.5850793975608
+sharpe_sim,-0.31837554214238867
+sharpe_mid,-0.1425306145301227
+max_drawdown,-21866.066733039923
+max_impact_dislocation,7.076094979653288e-05
+win_rate,0.508
+total_turnover,95707446.54880483
