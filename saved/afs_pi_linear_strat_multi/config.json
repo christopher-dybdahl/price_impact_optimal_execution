@@ -1,0 +1,15 @@
+{
+  "name": "afs_pi_linear_strat_multi",
+  "model_type": "sqrt",
+  "strategy": "linear",
+  "carry": "multi",
+  "half_life_minutes": 45,
+  "tau_bins": 6,
+  "rho": 0.05,
+  "h_alpha_bins": 1,
+  "max_position_adv": 0.005,
+  "liquidation_minutes": 30,
+  "overnight_minutes": 960,
+  "seed": 42,
+  "save_root": "saved"
+}
