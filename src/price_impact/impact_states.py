@@ -93,7 +93,7 @@ def compute_impact_states(
     stock_col: str = "stock",
     date_col: str = "date",
     time_col: str = "time",
-    order_flow_col: str = "orderFlow",
+    order_flow_col: str = "trade",
 ) -> pd.DataFrame:
     """Compute both daily-reset and multi-day impact states on the bin panel.
 

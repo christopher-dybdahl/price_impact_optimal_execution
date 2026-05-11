@@ -69,7 +69,7 @@ def select_top_stocks(data: pd.DataFrame, top_n: int = 20) -> list[str]:
 def compute_daily_stats(
     data: pd.DataFrame,
     lookback_days: int = 20,
-    price_col: str = "mid",
+    price_col: str = "midEnd",
     volume_col: str = "trade",
 ) -> pd.DataFrame:
     """Trailing 20-day daily statistics: sigma (10-s return std) and ADV.
