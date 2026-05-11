@@ -1,7 +1,7 @@
 {
-  "name": "ow_daily",
-  "model_type": "linear",
-  "strategy": "ow",
+  "name": "afs_pi_linear_strat_daily",
+  "model_type": "sqrt",
+  "strategy": "linear",
   "carry": "daily",
   "half_life_minutes": 45,
   "tau_bins": 6,

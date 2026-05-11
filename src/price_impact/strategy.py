@@ -103,8 +103,9 @@ def afs_optimal_strategy(
     project convention as OW's ramp on its target position.  AFS differs
     from OW only in the trade-generation step: it inverts the sqrt impact
     recursion rather than approaching a share-space target at rate κ.  The
-    loop additionally tracks Ī_prev so the recursion inversion is exact at
-    every bin.
+    loop tracks cumulative position and clips it to ±`max_position_adv`·ADV
+    (consistent with OW's share-space cap), then updates Ī_prev from the
+    clipped trade so the recursion inversion remains exact.
     """
     alpha = np.asarray(alpha, dtype=float)
     alpha = np.where(np.isfinite(alpha), alpha, 0.0)
@@ -117,11 +118,6 @@ def afs_optimal_strategy(
     decay = 1.0 - beta
 
     ibar_star = alpha / ((1.0 + c) * lam)
-    # Clip in normalized-impact space: σ·√(max_position_adv) is the q̃ produced
-    # by a one-shot trade of max_position_adv·ADV shares — the AFS analogue of
-    # OW's target = clip(target, -max_pos, max_pos) in share space.
-    max_ibar = sigma * np.sqrt(max_position_adv)
-    ibar_star = np.clip(ibar_star, -max_ibar, max_ibar)
 
     liq_bins = min(liquidation_minutes * BINS_PER_MINUTE, n)
     if liq_bins > 0:
@@ -129,11 +125,16 @@ def afs_optimal_strategy(
         ramp[n - liq_bins :] = np.linspace(1.0, 0.0, liq_bins)
         ibar_star = ibar_star * ramp
 
+    max_pos = max_position_adv * adv
+    pos = 0.0
     ibar_prev = 0.0
     trades = np.zeros(n)
     for t in range(n):
         z = ibar_star[t] - decay * ibar_prev
-        q = adv * np.sign(z) * (abs(z) / sigma) ** 2
+        q_desired = adv * np.sign(z) * (abs(z) / sigma) ** 2
+        new_pos = float(np.clip(pos + q_desired, -max_pos, max_pos))
+        q = new_pos - pos
+        pos = new_pos
         trades[t] = q
         q_tilde = sigma * np.sign(q) * np.sqrt(abs(q) / adv)
         ibar_prev = decay * ibar_prev + q_tilde
