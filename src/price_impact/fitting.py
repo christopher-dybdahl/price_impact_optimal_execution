@@ -26,6 +26,8 @@ import pandas as pd
 from .impact_states import (
     ModelType,
     compute_impact_states,
+    compute_impact_states_concave,
+    decay_from_half_life,
     select_i_bar_column,
 )
 
@@ -95,39 +97,42 @@ def daily_sufficient_stats(features: pd.DataFrame) -> pd.DataFrame:
 
 
 def ols_from_sums(s: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
-    """Return (slope λ, intercept α) Series indexed like `s`, from sums."""
-    n = s["count"]
-    cov_xy = s["xy"] - s["x"] * s["y"] / n
-    var_x = s["xx"] - s["x"] ** 2 / n
-    lam = cov_xy / var_x
-    alpha = s["y"] / n - lam * s["x"] / n
+    """Return (slope λ, intercept) Series from sums, fitting **y = λ·x** with
+    no intercept.
+
+    Zero-flow ≡ zero-impact: if Ī doesn't move, the return shouldn't move on
+    average. The intercept is therefore identically 0 and returned only to
+    preserve the call signature used by ``rolling_baseline``.
+
+    Closed form: λ̂ = Σxy / Σxx.
+    """
+    lam = s["xy"] / s["xx"]
+    alpha = pd.Series(0.0, index=s.index)
     return lam, alpha
 
 
 def r2_from_sums(s: pd.DataFrame, lam: pd.Series, alpha: pd.Series) -> pd.Series:
+    """Centred R² for the no-intercept fit  y = λ·x.
+
+    Uses the conventional centred denominator SS_tot = Σ(y − ȳ)², so a model
+    that does no better than predicting the mean scores R² ≤ 0.  This keeps
+    the metric comparable to the previous intercept-on version.
+
+    ``alpha`` is accepted (and ignored, beyond a sanity check) for signature
+    compatibility.
+    """
+    _ = alpha  # unused — intercept is fixed at zero
     n = s["count"]
     ss_tot = s["yy"] - s["y"] ** 2 / n
-    ss_res = (
-        s["yy"]
-        - 2 * lam * s["xy"]
-        - 2 * alpha * s["y"]
-        + 2 * alpha * lam * s["x"]
-        + lam**2 * s["xx"]
-        + alpha**2 * n
-    )
+    ss_res = s["yy"] - 2 * lam * s["xy"] + lam**2 * s["xx"]
     return 1.0 - ss_res / ss_tot
 
 
 def mse_from_sums(s: pd.DataFrame, lam: pd.Series, alpha: pd.Series) -> pd.Series:
+    """MSE of the no-intercept fit  y = λ·x."""
+    _ = alpha
     n = s["count"]
-    return (
-        s["yy"]
-        - 2 * lam * s["xy"]
-        - 2 * alpha * s["y"]
-        + 2 * alpha * lam * s["x"]
-        + lam**2 * s["xx"]
-        + alpha**2 * n
-    ) / n
+    return (s["yy"] - 2 * lam * s["xy"] + lam**2 * s["xx"]) / n
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +395,82 @@ def rolling_nonparametric(
         )
 
     return pd.DataFrame(records), fits
+
+
+# ---------------------------------------------------------------------------
+# Concavity (c) × half-life (H) grid search — canonical AFS family.
+# ---------------------------------------------------------------------------
+def concavity_grid_search(
+    data: pd.DataFrame,
+    daily_stats: pd.DataFrame,
+    c_grid: Iterable[float],
+    H_grid_minutes: Iterable[float],
+    tau_bins: int,
+    carry: CarryMode = "daily",
+    n_windows: int = 10,
+    offset: int = 2,
+    start_time: str = "10:00:00",
+    price_col: str = "midEnd",
+    progress: bool = True,
+) -> pd.DataFrame:
+    """Sweep (c, H) under canonical AFS form (linear OU + concavity outside).
+
+    For each H, the linear J state is computed **once** (the OU is the only
+    expensive step). For each c at that H, the concave transform
+    ``Ī = σ·sign(J)·|J|^c`` is a pointwise pow(), so adding c values is cheap.
+
+    Returns a long DataFrame with columns
+        [c, H, train_month, val_month, stock, lambda, alpha,
+         is_r2, oos_r2]
+
+    where ``c`` is the impact concavity exponent. (The ``alpha`` column
+    coming back from ``rolling_baseline`` is the OLS intercept, which is
+    fixed to 0 under the no-intercept fit.)
+    """
+    c_grid = list(c_grid)
+    H_grid_minutes = list(H_grid_minutes)
+    records: list[pd.DataFrame] = []
+
+    for H in H_grid_minutes:
+        if progress:
+            print(f"  [H={H:>5.1f} min] computing linear J (OU)…", flush=True)
+        # Compute J once per H (independent of c).
+        j_df = compute_impact_states_concave(
+            data, daily_stats, half_life_minutes=H, c=1.0,
+        )
+        # j_df already has J_daily / J_multi columns plus sigma.
+        j_col = "J_daily" if carry == "daily" else "J_multi"
+        sigma = j_df["sigma"].to_numpy(dtype=float)
+        J = j_df[j_col].to_numpy(dtype=float)
+        signJ = np.sign(J)
+        absJ = np.abs(J)
+
+        i_col_name = select_i_bar_column(carry)
+
+        for c in c_grid:
+            if progress:
+                print(f"  [H={H:>5.1f} min, c={c:.2f}] features + OLS…", flush=True)
+            # Build Ī for this (c, H) cell.
+            impact_panel = j_df[["stock", "date", "time"]].copy()
+            impact_panel[i_col_name] = sigma * signJ * np.power(absJ, c)
+
+            feats = build_regression_features(
+                impact_panel,
+                data,
+                tau_bins=tau_bins,
+                carry=carry,
+                start_time=start_time,
+                price_col=price_col,
+            )
+            stats = daily_sufficient_stats(feats)
+            baseline = rolling_baseline(stats, n_windows=n_windows, offset=offset)
+            baseline["c"] = float(c)
+            baseline["H"] = float(H)
+            records.append(baseline)
+
+    if not records:
+        return pd.DataFrame()
+    return pd.concat(records, ignore_index=True)
 
 
 def per_stock_lambda(baseline_df: pd.DataFrame) -> pd.Series:
