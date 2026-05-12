@@ -134,18 +134,16 @@ $c \backslash H$ (min)
 The maximum is at $c^\star = 0.80$, $H^\star = 10$ min, with median
 pooled OOS $R^2 = 0.164$.  The increase over plain OW ($c = 1$,
 $H = 45\text{--}60$ gives $R^2 = 0.152$) is about $1.2$ percentage
-points, on a broad ridge that spans $c \in [0.7, 0.9]$ and
+points, on a broad optimal region that spans $c \in [0.7, 0.9]$ and
 $H \in [10, 60]$ at roughly the same $R^2$.  The data clearly prefer a
-concave specification --- the linear OW row is the worst row above
-$c = 0.6$ --- but the favoured concavity is mild ($c \in [0.7, 0.9]$),
-not the strongly concave $c = 0.5$ square-root.  Strongly concave
-specifications are materially worse than the ridge: $c \le 0.5$ loses
+concave specification: across H the linear OW row has a worse $R^2$ than $c=0.8$, but this is still fairly close to $c=1.0$. Strongly concave
+specifications are materially worse than the optimal region: $c \le 0.5$ loses
 roughly $3$ to $6$ percentage points of OOS $R^2$ at every $H$.
 
-The half-life dimension is fairly forgiving in the ridge region: once
+The half-life dimension is fairly forgiving in the optimal region: once
 $H$ is in the 10-to-60 min band the OOS $R^2$ surface is flat to
 within a percentage point.  Very long $H$ (180 min) costs about a
-percentage point relative to the optimum at every $c$ in the ridge,
+percentage point relative to the optimum at every $c$ in the optimal region,
 and very short $H$ (5 min) is competitive at the optimal $c$.  The
 fact that the optimum $H^\star$ moves only mildly with $c$ supports
 reading $H$ as a property of the market rather than of the model.
@@ -162,9 +160,7 @@ that is mildly concave ($c \in [0.7, 0.9]$) rather than strongly
 concave.  We also proceed (somewhat incorrectly) by adopting a
 non-parametric extension with impact coefficient estimates binned
 according to impact states, but we update the impact flow kernel so
-that it properly reflects the corrected canonical AFS specification
-(linear OU on $q/\mathrm{ADV}$, power-law shape applied outside at
-$c = 0.5$).
+that it properly reflects the corrected AFS model.
 }}
 \bigskip
 
@@ -184,39 +180,44 @@ a universal pooled curve $\bar g_b$ through
 with $B = 15$ quantile bins, edges computed on the train month pooled
 across stocks, and $\gamma$ tuned on the held-out test month by
 minimising squared-error MSE over a log-spaced grid scaled to the
-median bin count.  The shrinkage formula is a textbook posterior-mean
+median bin count.  The shrinkage formula is a posterior-mean
 update treating $\bar g_b$ as a Bayesian prior with effective sample
 size $\gamma$.
 
 Figure~\ref{fig:curves} shows the estimated $g(x)$ at one window
 (train month 3).  Per-stock curves are grey, the universal pooled
-curve is the blue dashed line.  In the left panel the regressor is
-$x^{\text{OW}}$, built from the linear flow kernel ($c = 1$), and the
-non-parametric curves show clear concavity --- the slope through the
-origin is steeper than the slope at the extremes, consistent with
-sub-linear impact.  In the right panel the regressor is
-$x^{\text{AFS}}$, built from the canonical-outside power-law flow
-kernel at $c = 0.5$ (linear OU on $q/\mathrm{ADV}$, $\bar I = \sigma\,\mathrm{sgn}(J)\,|J|^c$
-applied outside).  The power-law transform has already pulled the
-small-flow range out, but the residual shape is still not a straight
-line: the $c{=}0.5$ kernel over-concaves the aggregated $J$ relative
-to the grid-optimal $c \approx 0.8$, so the non-parametric estimator
-continues to find structure even after the parametric kernel has been
-applied.  Both panels make clear why the NP estimator lifts OOS $R^2$
-in Table~\ref{tab:apples} ($+6.8$ pp for OW, $+10.0$ pp for AFS at
-$c{=}0.5$).
+curve is the blue dashed line.  Both panels show the same
+qualitative shape: a steep slope through the origin that flattens at
+the extremes --- i.e., sub-linear impact.  For OW ($c{=}1$) this is
+the curvature the linear kernel $\bar I = \sigma\,J$ ignores
+entirely; for AFS ($c{=}0.5$) the sqrt kernel has absorbed part of
+the curvature, but the response is still visibly concave because the
+grid in Table~\ref{tab:grid} prefers $c \approx 0.8$ rather than
+$0.5$.
+
+The deeper point is that the move from parametric to non-parametric
+trades a one-parameter functional form ($y = \lambda x$) for fifteen
+bin-wise degrees of freedom, regardless of which kernel built $x_t$.
+Once that flexibility is granted, both models converge on essentially
+the same binned shape, which is why the parametric gap of $4.7$ pp
+between OW and AFS shrinks to $1.5$ pp under NP (see
+Table~\ref{tab:apples}).  The NP lift is comparable across the two
+models, and slightly larger for AFS ($+10.0$ pp) than for OW
+($+6.8$ pp) because the parametric AFS at $c = 0.5$ starts further
+from the underlying impact curve and so leaves more residual
+structure for the binned estimator to recover.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/canonical_run/impact_curves.png}
-\caption{Estimated $g(x)$ at train month $m = 3$, canonical-outside
-         pipeline at $H^\star = 52.5$ min.  Grey: per-stock
-         $\hat g_i(\cdot)$; blue dashed: universal $\bar g(\cdot)$.
-         Left: OW ($c{=}1$) with $x = \sigma\Delta\bar I_{\text{lin}}$;
-         the concavity is empirically visible.
-         Right: AFS ($c{=}0.5$, canonical-outside) with
-         $x = \sigma\Delta\bar I_{c=0.5}$; residual curvature remains
-         because $c = 0.5$ is more concave than the data prefers.}
+\caption{Estimated $g(x)$ at train month $m = 3$ under the
+         canonical-outside pipeline at $H^\star = 52.5$ min.  Grey:
+         per-stock $\hat g_i(\cdot)$; blue dashed: universal
+         $\bar g(\cdot)$.  Left: OW ($c{=}1$) with
+         $x = \sigma\Delta J$; sub-linear curvature visible.  Right:
+         AFS ($c{=}0.5$) with $x = \sigma\Delta\bar I_{c=0.5}$; the
+         sqrt kernel absorbs part of the curvature but residual
+         sub-linearity remains, since the data prefer $c \approx 0.8$.}
 \label{fig:curves}
 \end{figure}
 
@@ -241,10 +242,11 @@ for AFS), and the OOS $R^2$ gain of regularised over raw per-stock
 estimators grows roughly sixty times for OW (from $+0.0001$ to
 $+0.0066$) and ninety times for AFS (from $+0.0001$ to $+0.0097$).
 Figure~\ref{fig:gamma_progression} shows the corresponding $\gamma$
-tuning curves: flat at the headline, developing a clear minimum at
-non-trivial $\gamma^\star$ as the window shrinks.  The flatness in
-the headline configuration is therefore a consequence of the fact
-that data is abundant, not a defect of the estimator.
+tuning curves (median across the ten rolling windows): flat at the
+headline, developing a clear minimum at non-trivial $\gamma^\star$
+as the window shrinks.  The flatness in the headline configuration is
+therefore a consequence of the fact that data is abundant, not a
+defect of the estimator.
 
 \begin{table}[H]
 \centering\small
@@ -267,11 +269,15 @@ Train window & Med.\ $n$ & OW gain (reg $-$ raw) & AFS gain & Median $\gamma^\st
 \centering
 \includegraphics[width=\textwidth]{figures/canonical_run/stress_tuning.png}
 \caption{$\gamma$ tuning curves for OW at three training-window sizes
-         (canonical-outside pipeline, $H^\star = 52.5$ min).
-         As per-cell $n$ shrinks the curves develop a clear minimum
-         at non-trivial $\gamma^\star$.  The estimator trusts per-stock
-         data when there is plenty and pools toward the universal
-         curve when starved.}
+         (canonical-outside pipeline, $H^\star = 52.5$ min), shown as
+         the median test-month MSE across the ten rolling windows.
+         The headline panel is flat --- shrinkage has nothing
+         material to do.  At five-day windows a shallow dip appears,
+         and at two-day windows a clear bowl emerges at
+         $\gamma^\star/n \approx 2$.  The $\gamma^\star/n$ value
+         marked here is the argmin of the median curve;
+         Table~\ref{tab:stress} reports the median of each window's
+         individual argmin, which weights tail windows differently.}
 \label{fig:gamma_progression}
 \end{figure}
 
@@ -289,8 +295,7 @@ equal-weight per stock.
 \begin{table}[H]
 \centering\small
 \caption{Pooled OOS $R^2$ by model and estimator, canonical-outside
-         pipeline at $H^\star = 52.5$ min, $\tau = 6$ bins
-         (OW at $c{=}1$; AFS at $c{=}0.5$).}
+         pipeline at $H^\star = 52.5$ min, $\tau = 6$ bins.}
 \label{tab:apples}
 \begin{tabular}{lccc}
 \toprule
@@ -306,18 +311,20 @@ AFS & 0.1144 & 0.2145 & $+0.1001$ \\
 Two observations.  First, the non-parametric estimator lifts both
 models substantially: $+6.8$ percentage points for OW (from $0.161$
 to $0.230$) and $+10.0$ percentage points for the continuity-AFS at
-$c{=}0.5$ (from $0.114$ to $0.215$).  There is genuine curvature in
-$g(x)$ that the parametric one-parameter $\lambda$ cannot capture,
-and the binned estimator harvests it.  Second, the NP estimator
+$c{=}0.5$ (from $0.114$ to $0.215$).  Both lifts say the same thing:
+there is genuine sub-linear curvature in $g(x)$ that a single
+$\lambda$ cannot represent.  Second, the NP estimator
 \emph{almost equalises} the two models: the parametric gap between
 OW and AFS ($4.7$ percentage points) shrinks to $1.5$ percentage
-points under NP, because the binned estimator absorbs the mis-specified
-concavity of the $c{=}0.5$ kernel and effectively re-discovers the
-correct impact curve regardless of the parametric assumption.  This is
-strong evidence that the right level of concavity sits on the
-near-linear ridge ($c \in [0.7, 0.9]$ per the $(c, H)$ grid), not at
-$c = 0.5$, and that fifteen non-parametric degrees of freedom are
-enough to compensate for getting $c$ wrong.
+points under NP.  The mechanism is straightforward --- the binned
+estimator replaces the one-parameter $\lambda$ with fifteen bin-wise
+degrees of freedom, and that extra flexibility is enough to recover
+essentially the same impact curve regardless of which kernel was used
+to build $x_t$.  The residual $1.5$ pp gap is the cost of starting
+from a worse $x$-axis: bin edges set on $\sigma\Delta|J|^{0.5}$
+partition the data slightly differently from edges set on
+$\sigma\Delta J$, so the AFS-kernel NP reaches a slightly suboptimal
+binning before $\gamma$ has anything to do.
 
 \begin{figure}[H]
 \centering
@@ -338,20 +345,16 @@ residual market component and an attributed ``our trades'' component:
   q_{\text{agg},t} \;=\; q_{\text{others},t} \;+\; q_{\text{us},t}.
 \]
 It then applies the Waelbroeck impact map: the unperturbed path drives the OU impact state with the residual flow $q_{\text{others}} = q_{\text{agg}} - q_{\text{us}}$ and
-the perturbed path drives it with the full observed flow $q_{\text{agg}}$.  Both price paths share as common baseline the cumulative return $R(t) = (P^{\text{mid}}_t - P^{\text{mid}}_0)/P^{\text{mid}}_0$ from the day-open mid:
+the perturbed path drives it with the full observed flow $q_{\text{agg}}$.  Both price paths share as common baseline the cumulative return $\text{cumret}(t) = (P^{\text{mid}}_t - P^{\text{mid}}_0)/P^{\text{mid}}_0$ from the day-open mid:
 \begin{align}
-  P_{\text{unpert}}(t) &= P_0\bigl(1 + R(t) + g_{\text{others}}(t)\bigr),
+  P_{\text{unpert}}(t) &= P_0\bigl(1 + \text{cumret}(t) + g_{\text{others}}(t)\bigr),
   \label{eq:punpert}\\
-  P_{\text{pert}}(t) &= P_0\bigl(1 + R(t) + g_{\text{full}}(t)\bigr),
+  P_{\text{pert}}(t) &= P_0\bigl(1 + \text{cumret}(t) + g_{\text{full}}(t)\bigr),
   \label{eq:ppert}
 \end{align}
 where the impact contribution is $g(t) = \lambda\,\bar I(t)$ for the OW and AFS baselines (and $g(t) = \lambda(t)\,\bar I(t)$ for a time-dependent extended-OW model).
 \\
-Crucially, $P_{\text{unpert}}$ is not directly observed: it is the
-model-defined Waelbroeck-consistent counterfactual ``without us''
-path.  Net P\&L marks the cumulative position $X_t = \sum_{s\le t}
-q_{\text{us},s}$ along the perturbed path and gross P\&L marks the
-same position along the unperturbed path, impact cost is the gap:
+Crucially, $P_{\text{unpert}}$ is not directly observed: it is the model defined Waelbroeck counterfactual "without us" path.  Net P\&L marks the cumulative position $X_t = \sum_{s\le t} q_{\text{us},s}$ along the perturbed path and gross P\&L marks the same position along the unperturbed path, impact cost is the gap:
 \begin{align}
   \text{Net P\&L}     &= \textstyle\sum_t X_{t-1}\,\Delta P_{\text{pert},t},
   \label{eq:netpnl}\\
@@ -387,26 +390,23 @@ The OW closed-form strategy sizes a target position at each bin:
   \kappa = \beta,
 \]
 where $\alpha_t$ is the synthetic signal and $\kappa = \beta$ is the
-mean-reversion rate of the OU.  Positions are clipped to
+mean-reversion rate of the OU.  Positions are capped to
 $\pm 0.5\%\,\mathrm{ADV}$ and ramped linearly to zero over the
 final 30 minutes of the session.  The AFS strategy shares this same
-target-position rule with $\bar I^\star_t = \alpha_t/((1+c)\lambda)$;
-the model-specific power-law nonlinearity enters through the
-inversion of the recursion in \S\ref{sec:recursion} that maps the
-target impact state back to a per-bin trade.
+target-position rule with $\bar I^\star_t = \alpha_t/((1+c)\lambda)$, the model-specific power-law nonlinearity enters through the inversion of the recursion in \S\ref{sec:recursion} that maps the target impact state back to a per-bin trade.
 
 \paragraph{Trade providers.}
 The simulator accepts any signed schedule for $q_{\text{us}}$ through a callback interface. The pipeline wires the optimal $q$s for the OW and AFS closed forms. This design lets the same engine benchmark arbitrary execution strategies against the Waelbroeck counterfactual without touching the core simulator.
 
 \paragraph{Daily-reset vs.\ multi-day carry.}
-The baseline mode (\texttt{carry='daily'}) resets both impact states $\bar I_{\text{others}}$, $\bar I_{\text{full}}$ and the cumulative position to zero at the open of each day for all stocks. The multi-day mode (\texttt{carry='multi'}) carries all three across sessions within a stock: the next day's impact state starts exactly where the previous day ended, as if trading was continuous, with no overnight decay.  At the fitted $H^\star\approx 52.5$ minutes the OU decay factor over a 16-hour gap would be $(1-\beta)^{16\text{h}\times 6}\approx 10^{-5}$, which already effectively wipes $\bar I$; in the multi-day mode this wiping is left to the OU dynamics rather than applied as an ad-hoc overnight reset. The carry mode matters primarily because inventory continues to be held and the mark-to-market accounting interacts with that carried position.
+The baseline mode (\texttt{carry='daily'}) resets both impact states $\bar I_{\text{others}}$, $\bar I_{\text{full}}$ and the cumulative position to zero at the open of each day for all stocks. The multi-day mode (\texttt{carry='multi'}) carries all three across sessions within a stock: the next day's impact state starts exactly where the previous day ended, as if trading was continuous, with no overnight decay.  This choice has been made because at the fitted $H^\star\approx 52.5$ minutes the OU decay factor over a 16-hour gap would be $(1-\beta)^{16\text{h}\times 6}\approx 10^{-5}$, which is effectively equivalent to wiping $\bar I$. The carry mode matters because inventory continues to be held and the mark-to-market accounting interacts with that carried position.
 
-\paragraph{Flow-accounting flags.}
-At each bin the engine checks whether $|q_{\text{us},t}| >
-|q_{\text{agg},t}|$, i.e.\ whether our modelled flow exceeds the
-total observed tape flow.  Flagged bins are counted per (stock, day)
-and reported in the TCA tables as a data-quality and
-participation-plausibility diagnostic.
+% \paragraph{Flow-accounting flags.}
+% At each bin the engine checks whether $|q_{\text{us},t}| >
+% |q_{\text{agg},t}|$, i.e.\ whether our modelled flow exceeds the
+% total observed tape flow.  Flagged bins are counted per (stock, day)
+% and reported in the TCA tables as a data-quality and
+% participation-plausibility diagnostic.
 
 \paragraph{TCA decomposition.}
 Per (stock, day) the engine reports net P\&L (on $P_{\text{pert}}$),
@@ -415,51 +415,35 @@ predicted-alpha reward
 $\sum_t \alpha_t\, q_{\text{us},t}\, P_{\text{unpert},t}$,
 and realised-alpha reward
 $\sum_t r^{h}_t\, X_t\, P_{\text{unpert},t}$,
-along with turnover, gross notional, and per-bin participation
-$|q_{\text{us},t}|/|\text{trade}_t|$.  No heuristic slippage or
-spread model is injected; the entire cost channel is the
-Waelbroeck-consistent impact gap between the two paths.
+along with turnover and gross notional. Transaction costs are omitted, the execution frictions are defined solely by the Waelbroeck impact gap between the two paths.
 
 \paragraph{Configurations.}
-The results section sweeps four configurations along two axes---model
-(OW vs.\ AFS) $\times$ carry mode (daily vs.\ multi)---with identical
-$H^\star$, $\rho$, and position limits.  Each run writes per-day P\&L,
-stock-day TCA, performance metrics (Sharpe, drawdown, participation),
-and sample price-path overlays of $P^{\text{mid}}$,
-$P_{\text{unpert}}$, $P_{\text{pert}}$ with the corresponding
-$g$-channel plots.
+The results section sweeps four configurations: models
+(OW vs.\ AFS) and carry modes (daily vs.\ multi) with identical
+$H^\star$, $\rho$ and position limits.
 
 %================================================================
 \section{Synthetic Alpha and Optimal Trading Strategy}\label{sec:alpha}
 
 The synthetic alpha is the standard course construction, calibrated
-to a target correlation $\rho$ with the next-bin return and made
+to a target correlation $\rho$ with the next 6 bins return and made
 unbiased so that $E[r^h \mid \alpha_t] = \alpha_t$:
 \[
   \alpha_t = r^h_t + y\,\frac{dW_t}{P_t},
   \qquad
   y = \sqrt{(\rho^{-2}-1)\,\mathrm{Var}(r^h)/E[P^{-2}]\,/h},
 \]
-with $\rho = 0.05$ and $h = 1$ ten-second bin.  Empirical
+with $\rho = 0.05$ and $h = 6$ ten-second bin.  Empirical
 $\mathrm{Corr}(\alpha,r^h)$ averaged across stocks comes out within
-$\pm 1\%$ of the target $\rho$.  The overnight-alpha extension
-suggested in the assignment is not implemented; our daily-reset
-versus multi-day toggle is the second enhancement instead.
-
+$\pm 1\%$ of the target $\rho$.
+\\
 The optimal trading strategy under the OW model is the textbook
 closed form: the target position is
 \[
   X^\star_t = \frac{\alpha_t\,\mathrm{ADV}}{2\,\lambda\,\sigma},
 \]
-clipped to $\pm 0.5\%$ of $\mathrm{ADV}$, with the running position
-adjusting toward the target at speed $\kappa = \beta = \ln 2/H_{\text{bins}}$,
-and a linear ramp to zero over the final 30 minutes of each session
-to flatten out before the close.  For the AFS variant we use the
-same target-position rule with the power-law modification
-$\bar I^\star_t = \alpha_t/((1+c)\lambda)$, and the trade per bin is
-recovered by inverting the recursion as described in
-\S\ref{sec:recursion}.
-
+with the running position adjusting toward the target at speed $\kappa = \beta = \ln 2/H_{\text{bins}}$ and a linear ramp to zero over the final 30 minutes of each session to flatten out before the close.  For the AFS variant we use the same target-position rule with the power-law modification $\bar I^\star_t = \alpha_t/((1+c)\lambda)$ and the trade per bin is recovered as described in \S\ref{sec:recursion}.
+\\
 The extended OW model with a time-dependent $\lambda(t)$ is the third
 suggested enhancement.  The simulator can already accept a per-bin
 $\lambda_t$ array, and $g(t) = \lambda_t\,\bar I(t)$ falls out of the
@@ -683,11 +667,12 @@ Under the canonical-outside pipeline at $H^\star = 52.5$ min and the
 continuity choice $c = 0.5$, the fifteen-bin estimator lifts pooled
 OOS $R^2$ from $0.161$ to $0.230$ for OW ($+6.8$ pp) and from $0.114$
 to $0.215$ for AFS ($+10.0$ pp).  The NP estimator almost equalises
-the two models because it absorbs the mis-specified $c = 0.5$ kernel
-and re-discovers the correct impact curve directly from the binned
-data, so the parametric spec mostly matters when one is not free to
-fit a fifteen-bin shape.  Cross-stock $\gamma$ regularisation is
-immaterial in the data-rich headline configuration ($\gamma^\star/n
+the two models because it trades a one-parameter form for fifteen
+bin-wise degrees of freedom and the extra flexibility recovers
+essentially the same impact curve regardless of which kernel built
+$x_t$; the parametric gap of $4.7$ pp between OW and AFS shrinks to
+$1.5$ pp under NP.  Cross-stock $\gamma$ regularisation is immaterial
+in the data-rich headline configuration ($\gamma^\star/n
 \sim 0.14\text{--}0.21$, gain $\sim 10^{-4}$), but $\gamma^\star/n$
 rises to $\sim 1.1\text{--}1.6$ and the OOS $R^2$ gain rises by two
 orders of magnitude as the training window shrinks tenfold, so the
