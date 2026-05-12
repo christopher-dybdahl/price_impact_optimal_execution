@@ -38,7 +38,7 @@ RESULTS_DIR.mkdir(exist_ok=True)
 
 C_GRID = [0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00]
 H_GRID = [5, 10, 15, 30, 45, 60, 90, 120, 180]
-TAU_BINS = 180
+TAU_BINS = 6
 CARRY = "daily"
 N_WINDOWS = 10
 OFFSET = 2

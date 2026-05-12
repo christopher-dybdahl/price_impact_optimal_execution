@@ -38,8 +38,10 @@ import pandas as pd
 
 from .impact_states import (
     ModelType,
+    apply_concavity,
     decay_from_half_life,
-    q_tilde,
+    invert_concavity,
+    q_tilde,  # noqa: F401  (kept for back-compat re-exports)
 )
 from .strategy import ImpactModel
 
@@ -126,18 +128,31 @@ def waelbroeck_prices(
         raise ValueError("mid, q_agg, q_us must have the same length")
     n = len(mid)
 
-    # model_type kept for backward compatibility; c is the authoritative parameter.
+    # model_type is just a label here; c is the authoritative parameter.
     _ = model_type
 
     q_others = q_agg - q_us
-    qt_others = q_tilde(q_others, sigma, adv, c)
-    qt_full = q_tilde(q_agg, sigma, adv, c)
     decay = decay_from_half_life(half_life_minutes)
 
-    i_others = ou_recursion(
-        qt_others, decay, i_others0, no_initial_decay=no_initial_decay
+    # Canonical AFS recursion: linear OU on q/ADV, concavity OUTSIDE.
+    # Carried Ī initial states (``i_others0`` / ``i_full0``) are inverted to
+    # J initial states via ``invert_concavity`` — see impact_states.py.
+    j_others0 = (
+        float(invert_concavity(i_others0, sigma, c)) if i_others0 != 0.0 else 0.0
     )
-    i_full = ou_recursion(qt_full, decay, i_full0, no_initial_decay=no_initial_decay)
+    j_full0 = (
+        float(invert_concavity(i_full0, sigma, c)) if i_full0 != 0.0 else 0.0
+    )
+
+    j_others = ou_recursion(
+        q_others / adv, decay, j_others0, no_initial_decay=no_initial_decay
+    )
+    j_full = ou_recursion(
+        q_agg / adv, decay, j_full0, no_initial_decay=no_initial_decay
+    )
+
+    i_others = apply_concavity(j_others, sigma, c)
+    i_full = apply_concavity(j_full, sigma, c)
 
     lam_arr = np.broadcast_to(np.asarray(lam, dtype=float), (n,))
     g_others = lam_arr * i_others
@@ -537,12 +552,21 @@ def make_optimal_provider(
             c=ctx.model.c,
         )
         if carry == "multi":
-            # Compute the ending normalized impact state so the next day's
-            # strategy can pick up from the right initial condition.
-            # Uses q_tilde with model.c — same formula as the strategy loop.
+            # Compute the ending normalized impact state Ī so the next day's
+            # strategy picks up from the right initial condition. Canonical:
+            # invert carried Ī → J, run linear OU on q/ADV, then apply
+            # concavity outside. Matches waelbroeck_prices exactly.
             decay = decay_from_half_life(ctx.model.half_life_minutes)
-            qt = q_tilde(trades, ctx.sigma, ctx.adv, ctx.model.c)
-            ibar_carry[stock] = float(ou_recursion(qt, decay, i0=ibar_init)[-1])
+            j_init = (
+                float(invert_concavity(ibar_init, ctx.sigma, ctx.model.c))
+                if ibar_init != 0.0 else 0.0
+            )
+            j_end = float(
+                ou_recursion(trades / ctx.adv, decay, i0=j_init)[-1]
+            )
+            ibar_carry[stock] = float(
+                apply_concavity(j_end, ctx.sigma, ctx.model.c)
+            )
         return trades
 
     return provider
