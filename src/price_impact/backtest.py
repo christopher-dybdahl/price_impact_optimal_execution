@@ -38,8 +38,10 @@ import pandas as pd
 
 from .impact_states import (
     ModelType,
+    apply_concavity,
     decay_from_half_life,
-    q_tilde,
+    invert_concavity,
+    q_tilde,  # noqa: F401  (kept for back-compat re-exports)
 )
 from .strategy import ImpactModel
 
@@ -80,11 +82,11 @@ def waelbroeck_prices(
     half_life_minutes: float,
     sigma: float,
     adv: float,
-    model_type: ModelType = "linear",
+    c: float = 0.5,
     i_others0: float = 0.0,
     i_full0: float = 0.0,
     no_initial_decay: bool = False,
-    c: float = 0.5,
+    model_type: ModelType | None = None,  # kept for call-site compatibility; c takes precedence
 ) -> dict[str, np.ndarray]:
     """Simulate one (stock, date) session.
 
@@ -102,14 +104,16 @@ def waelbroeck_prices(
     Returns
     -------
     dict with keys:
-        p_mid      — observed mid used to define the common baseline return
-        p_unpert   — no-us Waelbroeck path, driven by q_others
-        p_pert     — with-us Waelbroeck path, driven by q_agg
-        i_others   — impact state Ī(q_agg - q_us)
-        i_full     — impact state Ī(q_agg)
-        g_others   — λ · Ī_others   (or λ_t · Ī_others for time-dep λ)
+        p_mid      — observed mid price
+        p_unpert   — Waelbroeck "no-us" path: P0·(1 + cum_ret + g_others)
+        p_pert     — Waelbroeck "with-us" path: P0·(1 + cum_ret + g_full)
+                     p_pert − p_unpert = P0·delta_g = P0·(g_full − g_others)
+                     — our AFS-marginal price impact (handles c < 1 non-additivity).
+        i_others   — OU impact state Ī(q_others), q_tilde uses exponent c
+        i_full     — OU impact state Ī(q_agg),    q_tilde uses exponent c
+        g_others   — λ · Ī_others
         g_full     — λ · Ī_full
-        delta_g    — g_full - g_others
+        delta_g    — g_full − g_others  (our AFS-marginal price impact, not g(q_us))
         position   — cumulative position from q_us (shares)
         cum_ret    — cumulative observed mid return from P0
 
@@ -124,44 +128,31 @@ def waelbroeck_prices(
         raise ValueError("mid, q_agg, q_us must have the same length")
     n = len(mid)
 
+    # model_type is just a label here; c is the authoritative parameter.
+    _ = model_type
+
     q_others = q_agg - q_us
     decay = decay_from_half_life(half_life_minutes)
 
-    if model_type == "sqrt":
-        # Canonical AFS: linear OU on q/ADV, power-law shape on the outside.
-        # ``i_others0`` / ``i_full0`` are interpreted as carried Ī values
-        # and inverted to J on entry; canonical state ``state_*`` (== J) is
-        # exposed in the output so the multi-day carry can pick it up.
-        j_others0 = (
-            float(np.sign(i_others0) * (abs(i_others0) / sigma) ** (1.0 / c))
-            if sigma > 0 and i_others0 != 0.0 else 0.0
-        )
-        j_full0 = (
-            float(np.sign(i_full0) * (abs(i_full0) / sigma) ** (1.0 / c))
-            if sigma > 0 and i_full0 != 0.0 else 0.0
-        )
-        j_others = ou_recursion(
-            q_others / adv, decay, j_others0, no_initial_decay=no_initial_decay
-        )
-        j_full = ou_recursion(
-            q_agg / adv, decay, j_full0, no_initial_decay=no_initial_decay
-        )
-        i_others = sigma * np.sign(j_others) * np.power(np.abs(j_others), c)
-        i_full = sigma * np.sign(j_full) * np.power(np.abs(j_full), c)
-        state_others = j_others
-        state_full = j_full
-    else:
-        # Linear OW (equivalent to canonical c=1).
-        qt_others = q_tilde(q_others, sigma, adv, model_type)
-        qt_full = q_tilde(q_agg, sigma, adv, model_type)
-        i_others = ou_recursion(
-            qt_others, decay, i_others0, no_initial_decay=no_initial_decay
-        )
-        i_full = ou_recursion(
-            qt_full, decay, i_full0, no_initial_decay=no_initial_decay
-        )
-        state_others = i_others
-        state_full = i_full
+    # Canonical AFS recursion: linear OU on q/ADV, concavity OUTSIDE.
+    # Carried Ī initial states (``i_others0`` / ``i_full0``) are inverted to
+    # J initial states via ``invert_concavity`` — see impact_states.py.
+    j_others0 = (
+        float(invert_concavity(i_others0, sigma, c)) if i_others0 != 0.0 else 0.0
+    )
+    j_full0 = (
+        float(invert_concavity(i_full0, sigma, c)) if i_full0 != 0.0 else 0.0
+    )
+
+    j_others = ou_recursion(
+        q_others / adv, decay, j_others0, no_initial_decay=no_initial_decay
+    )
+    j_full = ou_recursion(
+        q_agg / adv, decay, j_full0, no_initial_decay=no_initial_decay
+    )
+
+    i_others = apply_concavity(j_others, sigma, c)
+    i_full = apply_concavity(j_full, sigma, c)
 
     lam_arr = np.broadcast_to(np.asarray(lam, dtype=float), (n,))
     g_others = lam_arr * i_others
@@ -169,6 +160,11 @@ def waelbroeck_prices(
     delta_g = g_full - g_others
 
     cum_ret = (mid - mid[0]) / mid[0] if mid[0] != 0 else np.zeros(n)
+    # Waelbroeck price construction: mid ≈ fundamental price, impact is a small additive correction.
+    # p_unpert = price path if only others trade  (mid + P0·g_others).
+    # p_pert   = price path with all trading      (mid + P0·g_full).
+    # Difference p_pert − p_unpert = P0·(g_full − g_others) = P0·delta_g,
+    # which correctly captures our AFS-marginal contribution even for c < 1 (non-additive q_tilde).
     p_unpert = mid[0] * (1.0 + cum_ret + g_others)
     p_pert = mid[0] * (1.0 + cum_ret + g_full)
     position = np.cumsum(q_us)
@@ -179,10 +175,6 @@ def waelbroeck_prices(
         "p_pert": p_pert,
         "i_others": i_others,
         "i_full": i_full,
-        # Underlying OU state being carried (== Ī for linear; == J for canonical AFS).
-        # Used by run_backtest for multi-day carry — pass back in via i_others0/i_full0.
-        "state_others": state_others,
-        "state_full": state_full,
         "g_others": g_others,
         "g_full": g_full,
         "delta_g": delta_g,
@@ -452,11 +444,10 @@ def run_backtest(
                 half_life_minutes=model.half_life_minutes,
                 sigma=sigma,
                 adv=adv,
-                model_type=model.model_type,
+                c=model.c,
                 i_others0=i_others_carry if carry == "multi" else 0.0,
                 i_full0=i_full_carry if carry == "multi" else 0.0,
                 no_initial_decay=carry == "multi",
-                c=model.c,
             )
 
             position = sim["position"] + (pos_carry if carry == "multi" else 0.0)
@@ -549,7 +540,7 @@ def make_optimal_provider(
             ctx.lam if not isinstance(ctx.lam, np.ndarray) else float(np.mean(ctx.lam))
         )
         ibar_init = ibar_carry.get(stock, 0.0) if carry == "multi" else 0.0
-        kwargs = dict(
+        trades = strategy_fn(
             alpha=alpha,
             sigma=ctx.sigma,
             adv=ctx.adv,
@@ -558,34 +549,24 @@ def make_optimal_provider(
             max_position_adv=max_position_adv,
             liquidation_minutes=liquidation_minutes,
             ibar_init=ibar_init,
+            c=ctx.model.c,
         )
-        # Forward the canonical AFS concavity only to the AFS strategy
-        # (ow_optimal_strategy does not accept it).
-        if ctx.model.strategy.lower() in ("afs", "sqrt"):
-            kwargs["c"] = ctx.model.c
-        trades = strategy_fn(**kwargs)
         if carry == "multi":
-            # Compute the ending normalized impact state so the next day's
-            # strategy can pick up from the right initial condition. Same
-            # canonical/legacy split as `waelbroeck_prices`.
+            # Compute the ending normalized impact state Ī so the next day's
+            # strategy picks up from the right initial condition. Canonical:
+            # invert carried Ī → J, run linear OU on q/ADV, then apply
+            # concavity outside. Matches waelbroeck_prices exactly.
             decay = decay_from_half_life(ctx.model.half_life_minutes)
-            if ctx.model.model_type == "sqrt":
-                c = ctx.model.c
-                j_init = (
-                    float(np.sign(ibar_init) * (abs(ibar_init) / ctx.sigma) ** (1.0 / c))
-                    if ibar_init != 0.0 and ctx.sigma > 0 else 0.0
-                )
-                j_end = float(
-                    ou_recursion(trades / ctx.adv, decay, i0=j_init)[-1]
-                )
-                ibar_carry[stock] = (
-                    ctx.sigma * np.sign(j_end) * abs(j_end) ** c
-                )
-            else:
-                qt = q_tilde(trades, ctx.sigma, ctx.adv, ctx.model.model_type)
-                ibar_carry[stock] = float(
-                    ou_recursion(qt, decay, i0=ibar_init)[-1]
-                )
+            j_init = (
+                float(invert_concavity(ibar_init, ctx.sigma, ctx.model.c))
+                if ibar_init != 0.0 else 0.0
+            )
+            j_end = float(
+                ou_recursion(trades / ctx.adv, decay, i0=j_init)[-1]
+            )
+            ibar_carry[stock] = float(
+                apply_concavity(j_end, ctx.sigma, ctx.model.c)
+            )
         return trades
 
     return provider

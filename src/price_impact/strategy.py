@@ -1,18 +1,22 @@
 """Optimal trading strategies, model-aware.
 
-We expose three strategies:
+Single point of truth: all strategies delegate to :func:`optimal_strategy`,
+which parameterises both OW (c=1) and AFS (c=0.5) via the concavity exponent c.
 
-  * :func:`ow_optimal_strategy`   — OW (linear) closed form.
-  * :func:`afs_optimal_strategy`  — AFS (sqrt) closed form. Inverts the
-                                    sqrt impact recursion to recover the
-                                    optimal trade per bin given a target
-                                    normalized impact state.
-  * :func:`ext_ow_optimal_strategy_timedep_lambda` — placeholder for the
-                                    extended OW model with time-varying λ(t).
-                                    Not implemented; raises NotImplementedError.
+The impact model is the canonical Alfonsi–Fruth–Schied form:
 
-The "model" object pattern lets a downstream backtest pick the right
-strategy generically without branching.
+    J_{t+1} = (1 - β)·J_t + q_t / ADV          (linear OU on q/ADV)
+    Ī_t    = σ · sign(J_t) · |J_t|^c            (power-law shape OUTSIDE)
+
+``apply_concavity`` and ``invert_concavity`` from :mod:`impact_states` are
+the centralised helpers used here, in ``backtest.waelbroeck_prices``, and
+in :func:`compute_impact_states` — one definition, three call-sites.
+
+Exposed strategies:
+  * :func:`optimal_strategy`  — unified, takes c as parameter.
+  * :func:`ow_optimal_strategy`  — thin wrapper: c=1.
+  * :func:`afs_optimal_strategy` — thin wrapper: c=0.5 (or user-supplied c).
+  * :func:`ext_ow_optimal_strategy_timedep_lambda` — placeholder, raises NotImplementedError.
 """
 
 from __future__ import annotations
@@ -22,13 +26,95 @@ from typing import Callable, Literal
 
 import numpy as np
 
+from .impact_states import apply_concavity, invert_concavity
+
 ModelType = Literal["linear", "sqrt"]
 
 BINS_PER_MINUTE = 6
 
 
 # ---------------------------------------------------------------------------
-# OW (linear λ) closed-form strategy.
+# Unified optimal strategy — single point of truth for all c values.
+# ---------------------------------------------------------------------------
+def optimal_strategy(
+    alpha: np.ndarray,
+    sigma: float,
+    adv: float,
+    lam: float,
+    half_life_minutes: float,
+    c: float = 0.5,
+    max_position_adv: float = 0.005,
+    liquidation_minutes: int = 30,
+    ibar_init: float = 0.0,
+) -> np.ndarray:
+    """Optimal execution for the canonical AFS-family impact model.
+
+    Impact specification (matches :mod:`impact_states`):
+        J_{t+1} = (1 - β)·J_t + q_t / ADV
+        Ī_t    = σ · sign(J_t) · |J_t|^c        (via ``apply_concavity``)
+
+    HJB target impact state (one-half-α rule generalised to concavity c):
+        Ī*_t = α_t / ((1 + c) · λ)
+        c = 1.0 (OW)   → target = α/(2λ)
+        c = 0.5 (AFS)  → target = 2α/(3λ)
+
+    Inversion — two layers:
+        1. Ī* → J*  via :func:`impact_states.invert_concavity`
+           J*_t = sign(Ī*_t) · (|Ī*_t| / σ)^(1/c)
+        2. J* → q  by linear inversion of the OU step:
+           q_t = ADV · (J*_t − decay · J_{t−1})
+
+    Trades are clipped to ±``max_position_adv``·ADV; the actual (post-clip)
+    J state is tracked each bin so the inversion stays exact at the cap.
+    ``ibar_init`` is interpreted as a carried Ī from the previous session
+    (OW and AFS callers use the same parameter name); on entry it is
+    inverted to a J state via :func:`impact_states.invert_concavity`.
+    """
+    alpha = np.asarray(alpha, dtype=float)
+    alpha = np.where(np.isfinite(alpha), alpha, 0.0)
+    n = alpha.shape[0]
+    if lam <= 0 or n == 0 or sigma <= 0 or adv <= 0 or c <= 0 or half_life_minutes <= 0:
+        return np.zeros(n)
+
+    H_bins = half_life_minutes * BINS_PER_MINUTE
+    decay = 1.0 - np.log(2.0) / H_bins
+
+    # Target Ī*, then ramp to zero over the EOD liquidation window.
+    ibar_star = alpha / ((1.0 + c) * lam)
+    liq_bins = min(liquidation_minutes * BINS_PER_MINUTE, n)
+    if liq_bins > 0:
+        ramp = np.ones(n)
+        ramp[n - liq_bins :] = np.linspace(1.0, 0.0, liq_bins)
+        ibar_star = ibar_star * ramp
+
+    # Map target Ī* → target J* via the centralised inverse-concavity helper.
+    jbar_star = np.asarray(invert_concavity(ibar_star, sigma, c), dtype=float)
+
+    # Carry-in: ibar_init is in Ī units; invert to a J initial state.
+    jbar_prev = (
+        float(invert_concavity(ibar_init, sigma, c)) if ibar_init != 0.0 else 0.0
+    )
+
+    max_pos = max_position_adv * adv
+    pos = 0.0
+    trades = np.zeros(n)
+    for t in range(n):
+        # Linear OU inversion: target J change z drives a linear trade.
+        z = jbar_star[t] - decay * jbar_prev
+        q_desired = adv * z
+        new_pos = float(np.clip(pos + q_desired, -max_pos, max_pos))
+        q = new_pos - pos
+        pos = new_pos
+        trades[t] = q
+        # J evolves with the actual clipped trade (linear in q for J).
+        jbar_prev = decay * jbar_prev + q / adv
+    # Ī is recovered downstream via apply_concavity(J, σ, c) when needed.
+    _ = apply_concavity  # imported for the centralised symbol contract.
+    return trades
+
+
+# ---------------------------------------------------------------------------
+# Named wrappers — thin delegates to optimal_strategy.
 # ---------------------------------------------------------------------------
 def ow_optimal_strategy(
     alpha: np.ndarray,
@@ -39,58 +125,22 @@ def ow_optimal_strategy(
     max_position_adv: float = 0.005,
     liquidation_minutes: int = 30,
     ibar_init: float = 0.0,
+    **_,
 ) -> np.ndarray:
-    """OW-optimal intraday execution.
-
-    Target normalized impact state:
-        Ī*_t = α_t / (2λ)   so that  λ·Ī*_t = α_t/2  (HJB: pay half alpha in impact)
-
-    Trade per bin recovered by inverting the linear impact recursion:
-        decay = 1 − β,   β = ln 2 / H_bins
-        z_t   = Ī*_t − decay · Ī_{t−1}
-        q*_t  = ADV · z_t / σ              (linear inversion of q̃ = σ q / ADV)
-
-    Structurally identical to AFS — target an impact state, invert the recursion —
-    but uses the linear inversion instead of the sqrt one.  The loop tracks the
-    actual impact state Ī_prev from the clipped trade so the recursion inversion
-    remains exact when the position cap binds.
-    """
-    alpha = np.asarray(alpha, dtype=float)
-    alpha = np.where(np.isfinite(alpha), alpha, 0.0)
-    n = alpha.shape[0]
-    if lam <= 0 or n == 0 or sigma <= 0 or adv <= 0 or half_life_minutes <= 0:
-        return np.zeros(n)
-
-    H_bins = half_life_minutes * BINS_PER_MINUTE
-    beta = np.log(2.0) / H_bins
-    decay = 1.0 - beta
-
-    ibar_star = alpha / (2.0 * lam)
-
-    liq_bins = min(liquidation_minutes * BINS_PER_MINUTE, n)
-    if liq_bins > 0:
-        ramp = np.ones(n)
-        ramp[n - liq_bins :] = np.linspace(1.0, 0.0, liq_bins)
-        ibar_star = ibar_star * ramp
-
-    max_pos = max_position_adv * adv
-    pos = 0.0
-    ibar_prev = float(ibar_init)
-    trades = np.zeros(n)
-    for t in range(n):
-        z = ibar_star[t] - decay * ibar_prev
-        q_desired = adv * z / sigma
-        new_pos = float(np.clip(pos + q_desired, -max_pos, max_pos))
-        q = new_pos - pos
-        pos = new_pos
-        trades[t] = q
-        ibar_prev = decay * ibar_prev + sigma * q / adv
-    return trades
+    """OW (linear, c=1) optimal strategy. Delegates to optimal_strategy."""
+    return optimal_strategy(
+        alpha,
+        sigma,
+        adv,
+        lam,
+        half_life_minutes,
+        c=1.0,
+        max_position_adv=max_position_adv,
+        liquidation_minutes=liquidation_minutes,
+        ibar_init=ibar_init,
+    )
 
 
-# ---------------------------------------------------------------------------
-# AFS (sqrt) strategy.
-# ---------------------------------------------------------------------------
 def afs_optimal_strategy(
     alpha: np.ndarray,
     sigma: float,
@@ -101,74 +151,20 @@ def afs_optimal_strategy(
     liquidation_minutes: int = 30,
     c: float = 0.5,
     ibar_init: float = 0.0,
+    **_,
 ) -> np.ndarray:
-    """Canonical AFS-family optimal execution at concavity ``c``.
-
-    The impact model is the canonical AFS specification:
-
-        J_{t+1} = (1 - β) J_t + q_t / ADV          (linear OU on q/ADV)
-        Ī_t    = σ · sign(J_t) · |J_t|^c
-
-    HJB target normalised impact state (one half-alpha rule generalised
-    to concavity c):
-        Ī*_t = α_t / ((1 + c) · λ)
-
-    The trade per bin is recovered by inverting both layers of the
-    recursion. First map the target Ī* through the inverse of the
-    concave shape to obtain a target J*:
-        J*_t = sign(Ī*_t) · (|Ī*_t| / σ)^(1/c)
-
-    Then invert the linear OU step:
-        z_t  = J*_t − (1 - β) · J_{t-1}
-        q*_t = ADV · z_t
-
-    Trades are clipped to ±``max_position_adv``·ADV and the actual
-    (clipped) J state is updated each step so that the inversion remains
-    exact even at the cap. ``ibar_init`` is interpreted as the initial
-    Ī state carried in from a previous session and inverted to a J state
-    on entry, so the same parameter name works for OW and AFS callers.
-    """
-    alpha = np.asarray(alpha, dtype=float)
-    alpha = np.where(np.isfinite(alpha), alpha, 0.0)
-    n = alpha.shape[0]
-    if lam <= 0 or n == 0 or sigma <= 0 or adv <= 0 or c <= 0 or half_life_minutes <= 0:
-        return np.zeros(n)
-
-    H_bins = half_life_minutes * BINS_PER_MINUTE
-    beta = np.log(2.0) / H_bins
-    decay = 1.0 - beta
-
-    ibar_star = alpha / ((1.0 + c) * lam)
-
-    # End-of-day liquidation ramp on Ī* before mapping through the inverse
-    # concavity, so the J target also decays smoothly to zero at the close.
-    liq_bins = min(liquidation_minutes * BINS_PER_MINUTE, n)
-    if liq_bins > 0:
-        ramp = np.ones(n)
-        ramp[n - liq_bins :] = np.linspace(1.0, 0.0, liq_bins)
-        ibar_star = ibar_star * ramp
-
-    # Map target Ī* → target J* through the inverse of the concave shape.
-    jbar_star = np.sign(ibar_star) * np.power(np.abs(ibar_star) / sigma, 1.0 / c)
-
-    # Carry-in: ibar_init is expressed in Ī units (matches OW); invert to J.
-    jbar_prev = (
-        float(np.sign(ibar_init) * np.power(abs(ibar_init) / sigma, 1.0 / c))
-        if ibar_init != 0.0 else 0.0
+    """AFS (sqrt by default, c=0.5) optimal strategy. Delegates to optimal_strategy."""
+    return optimal_strategy(
+        alpha,
+        sigma,
+        adv,
+        lam,
+        half_life_minutes,
+        c=c,
+        max_position_adv=max_position_adv,
+        liquidation_minutes=liquidation_minutes,
+        ibar_init=ibar_init,
     )
-
-    max_pos = max_position_adv * adv
-    pos = 0.0
-    trades = np.zeros(n)
-    for t in range(n):
-        z = jbar_star[t] - decay * jbar_prev
-        q_desired = adv * z  # linear inversion of the J recursion
-        new_pos = float(np.clip(pos + q_desired, -max_pos, max_pos))
-        q = new_pos - pos
-        pos = new_pos
-        trades[t] = q
-        jbar_prev = decay * jbar_prev + q / adv
-    return trades
 
 
 # ---------------------------------------------------------------------------
@@ -183,12 +179,16 @@ def ext_ow_optimal_strategy_timedep_lambda(
     max_position_adv: float = 0.005,
     liquidation_minutes: int = 30,
 ) -> np.ndarray:
-    """Placeholder for the extended OW model where λ varies through the day.
-
-    The closed-form target position becomes  X*_t = α_t · ADV / (2 λ(t) σ),
-    but the HJB-optimal trade rule is no longer κ-constant: it depends on
-    the path of λ. Wire the proper derivation in here once it is settled.
-    """
+    """Placeholder for the extended OW model where λ varies through the day."""
+    _ = (
+        alpha,
+        sigma,
+        adv,
+        lam_t,
+        half_life_minutes,
+        max_position_adv,
+        liquidation_minutes,
+    )
     raise NotImplementedError(
         "Extended OW with time-dependent λ is not implemented; this is a"
         " placeholder for the closed-form solution to be added later."
@@ -223,22 +223,28 @@ def get_strategy(name: str) -> StrategyFn:
 class ImpactModel:
     """Bundles the impact-model identity for a backtest run.
 
-    `lam_lookup` is per-stock; if `lam_t_lookup` is set, the model is treated
-    as time-dependent (one array per stock-day), and the simulator uses
-    g_t = λ_t * Ī_t instead of g = λ * Ī.
+    ``c`` is the concavity exponent used by the canonical pipeline:
 
-    ``c`` is the AFS concavity exponent and is consumed by the simulator
-    only when ``model_type='sqrt'``. ``c=1`` would degenerate to linear OW
-    (so for the linear branch the field is ignored); ``c=0.5`` is the
-    canonical Alfonsi--Fruth--Schied square-root impact.
+        J_{t+1} = (1 - β)·J_t + q_t / ADV          (linear OU on q/ADV)
+        Ī_t    = σ · sign(J_t) · |J_t|^c           (apply_concavity)
+
+    The same ``c`` is consumed by :func:`optimal_strategy`, by
+    :func:`backtest.waelbroeck_prices`, and by
+    :func:`impact_states.compute_impact_states` — one value, one formula,
+    three call-sites.  c=0.5 → AFS sqrt; c=1.0 → OW linear.
+
+    ``model_type`` is kept for labelling / compatibility; ``c`` is the
+    authoritative parameter and is what flows into the canonical helpers.
+
+    ``lam_t_lookup`` makes the model time-dependent (one array per stock-day).
     """
 
-    model_type: ModelType  # 'linear' or 'sqrt'
+    model_type: ModelType  # 'linear' or 'sqrt' — label only; c is authoritative
     half_life_minutes: float
     lam_lookup: dict[str, float]  # stock -> scalar λ
+    c: float = 0.5  # concavity exponent: 0.5 (AFS) or 1.0 (OW)
     lam_t_lookup: dict[tuple[str, object], np.ndarray] | None = None
     strategy: str = "ow"  # 'ow' | 'afs' | 'ext_ow'
-    c: float = 0.5  # AFS concavity (used when model_type='sqrt')
 
     def is_time_dependent(self) -> bool:
         return self.lam_t_lookup is not None
