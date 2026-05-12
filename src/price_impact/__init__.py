@@ -55,11 +55,14 @@ from .fitting import (
     rolling_nonparametric,
 )
 from .impact_states import (
+    apply_concavity,
     compute_impact_states,
     compute_impact_states_concave,
     decay_from_half_life,
+    invert_concavity,
     overnight_decay,
     q_tilde,
+    resolve_c,
     select_i_bar_column,
 )
 from .results import (
@@ -93,11 +96,14 @@ __all__ = [
     "load_bins",
     "select_top_stocks",
     # impact states
+    "apply_concavity",
     "compute_impact_states",
     "compute_impact_states_concave",
     "decay_from_half_life",
+    "invert_concavity",
     "overnight_decay",
     "q_tilde",
+    "resolve_c",
     "select_i_bar_column",
     # fitting
     "build_regression_features",
