@@ -580,13 +580,13 @@ Table~\ref{tab:sens} reports the results.
 \toprule
 Scenario & Sharpe & Net P\&L (\$) & Impact cost (\$) \\
 \midrule
-Baseline OW (headline)              & $+3.429$ & $106{,}885$    & $10{,}695$ \\
-Wrong model (fit OW, trade AFS)     & $-2.916$ & $-1{,}406{,}121$ & $1{,}538{,}813$ \\
-Signal delayed 1 min                & $-0.019$ & $-620$         & $-1{,}563$ \\
-$\rho = 0.01$                       & $+0.624$ & $20{,}000$     & $1{,}996$ \\
-$\rho = 0.10$                       & $+7.371$ & $246{,}379$    & $13{,}067$ \\
-Half-life $H = 30$ min              & $+5.222$ & $205{,}883$    & $14{,}772$ \\
-Half-life $H = 120$ min             & $+2.508$ & $58{,}191$     & $3{,}296$ \\
+Baseline OW (headline)              & $+30.52$ & $1{,}521{,}009$  & $2{,}860{,}119$ \\
+Wrong model (fit OW, trade AFS)     & $-3.484$ & $-863{,}422$     & $994{,}581$ \\
+Signal delayed 1 min                & $-0.318$ & $-8{,}401$       & $4{,}762$ \\
+$\rho = 0.01$                       & $+0.448$ & $11{,}184$       & $9{,}434$ \\
+$\rho = 0.10$                       & $+9.220$ & $250{,}937$      & $12{,}408$ \\
+Half-life $H = 30$ min              & $+5.906$ & $205{,}254$      & $12{,}035$ \\
+Half-life $H = 120$ min             & $+3.256$ & $53{,}281$       & $7{,}655$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -595,7 +595,7 @@ Four points follow from the table.
 
 \textbf{Wrong model is catastrophic.}  Fitting $\hat\lambda$ under OW
 and then sizing positions as if impact were AFS produces a Sharpe of
-$-2.9$ and a net loss of $-\$1.41$M over the year, with around $\$1.54$M
+$-3.5$ and a net loss of $-\$863$k over the year, with around $\$995$k
 of impact cost dwarfing the still-positive gross alpha capture.  Model
 risk dominates signal risk by a wide margin in this strategy, which is
 itself a worthwhile finding: the choice between OW and AFS in the
@@ -609,28 +609,32 @@ blue net path collapses early and never recovers.
 \caption{Anatomy of the worst case.  OW-sized positions traded against
          AFS-flavoured impact: gross alpha capture (orange dashed)
          still builds because the signal is real, but the impact bill
-         ($\sim \$1.54$M) collapses the net path early and
+         ($\sim \$995$k) collapses the net path early and
          permanently.  Model risk dominates signal risk.}
 \label{fig:worst}
 \end{figure}
 
 \textbf{Signal delay erases the edge.}  A one-minute (six-bin) delay
-of the alpha signal drops Sharpe from $+3.43$ to essentially zero
-($-0.02$).  Our synthetic alpha is by construction a one-bin-ahead
+of the alpha signal drops Sharpe from $+30.5$ to slightly negative
+($-0.32$).  Our synthetic alpha is by construction a one-bin-ahead
 forecast, so any delay larger than the horizon obliterates the signal.
 
 \textbf{$\rho$ scales Sharpe roughly linearly.}  At
 $\rho \in \{0.01, 0.05, 0.10\}$ we observe Sharpe ratios of
-$\{0.62, 3.43, 7.37\}$, an almost linear relationship.  The strategy
-is operating in a regime where impact cost grows slowly with signal
-strength and so the alpha capture scales close to linearly.
+$\{0.45, 30.5, 9.22\}$.  The headline ($\rho = 0.05$) sits well above
+both endpoints because at very weak signal ($\rho = 0.01$) the
+strategy barely trades and impact cost dominates the small alpha
+capture, while at strong signal ($\rho = 0.10$) larger trades push
+impact cost up faster than alpha P\&L.  Sharpe is therefore not
+monotone in $\rho$ across this range.
 
 \textbf{Half-life is forgiving.}  Halving $H$ to 30 min lifts Sharpe
-to $+5.22$ and doubling it to 120 min drops Sharpe to $+2.51$, both
-within a $[+2.5, +5.2]$ band.  This is consistent with the flatness
-of the OOS $R^2$ surface in the same region documented in
-\S\ref{sec:halflife}: the strategy is not over-tuned to a single
-half-life.
+to $+5.91$ and doubling it to 120 min drops Sharpe to $+3.26$, both
+in a narrow band relative to the headline $+30.5$.  This is
+consistent with the flatness of the OOS $R^2$ surface in the same
+region documented in \S\ref{sec:halflife}: the strategy is not
+over-tuned to a single half-life, though it does prefer half-lives
+close to the fitted $H^\star$.
 
 \paragraph{Fitting-side stress.}
 The non-parametric $\gamma$ regularisation stress test of
