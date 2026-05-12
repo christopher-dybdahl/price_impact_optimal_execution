@@ -46,6 +46,7 @@ from .data import (
 )
 from .fitting import (
     build_regression_features,
+    concavity_grid_search,
     daily_sufficient_stats,
     half_life_grid_search,
     per_stock_lambda,
@@ -55,6 +56,7 @@ from .fitting import (
 )
 from .impact_states import (
     compute_impact_states,
+    compute_impact_states_concave,
     decay_from_half_life,
     overnight_decay,
     q_tilde,
@@ -92,12 +94,14 @@ __all__ = [
     "select_top_stocks",
     # impact states
     "compute_impact_states",
+    "compute_impact_states_concave",
     "decay_from_half_life",
     "overnight_decay",
     "q_tilde",
     "select_i_bar_column",
     # fitting
     "build_regression_features",
+    "concavity_grid_search",
     "daily_sufficient_stats",
     "half_life_grid_search",
     "per_stock_lambda",
