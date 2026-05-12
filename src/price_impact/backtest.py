@@ -84,6 +84,7 @@ def waelbroeck_prices(
     i_others0: float = 0.0,
     i_full0: float = 0.0,
     no_initial_decay: bool = False,
+    c: float = 0.5,
 ) -> dict[str, np.ndarray]:
     """Simulate one (stock, date) session.
 
@@ -124,14 +125,43 @@ def waelbroeck_prices(
     n = len(mid)
 
     q_others = q_agg - q_us
-    qt_others = q_tilde(q_others, sigma, adv, model_type)
-    qt_full = q_tilde(q_agg, sigma, adv, model_type)
     decay = decay_from_half_life(half_life_minutes)
 
-    i_others = ou_recursion(
-        qt_others, decay, i_others0, no_initial_decay=no_initial_decay
-    )
-    i_full = ou_recursion(qt_full, decay, i_full0, no_initial_decay=no_initial_decay)
+    if model_type == "sqrt":
+        # Canonical AFS: linear OU on q/ADV, power-law shape on the outside.
+        # ``i_others0`` / ``i_full0`` are interpreted as carried Ī values
+        # and inverted to J on entry; canonical state ``state_*`` (== J) is
+        # exposed in the output so the multi-day carry can pick it up.
+        j_others0 = (
+            float(np.sign(i_others0) * (abs(i_others0) / sigma) ** (1.0 / c))
+            if sigma > 0 and i_others0 != 0.0 else 0.0
+        )
+        j_full0 = (
+            float(np.sign(i_full0) * (abs(i_full0) / sigma) ** (1.0 / c))
+            if sigma > 0 and i_full0 != 0.0 else 0.0
+        )
+        j_others = ou_recursion(
+            q_others / adv, decay, j_others0, no_initial_decay=no_initial_decay
+        )
+        j_full = ou_recursion(
+            q_agg / adv, decay, j_full0, no_initial_decay=no_initial_decay
+        )
+        i_others = sigma * np.sign(j_others) * np.power(np.abs(j_others), c)
+        i_full = sigma * np.sign(j_full) * np.power(np.abs(j_full), c)
+        state_others = j_others
+        state_full = j_full
+    else:
+        # Linear OW (equivalent to canonical c=1).
+        qt_others = q_tilde(q_others, sigma, adv, model_type)
+        qt_full = q_tilde(q_agg, sigma, adv, model_type)
+        i_others = ou_recursion(
+            qt_others, decay, i_others0, no_initial_decay=no_initial_decay
+        )
+        i_full = ou_recursion(
+            qt_full, decay, i_full0, no_initial_decay=no_initial_decay
+        )
+        state_others = i_others
+        state_full = i_full
 
     lam_arr = np.broadcast_to(np.asarray(lam, dtype=float), (n,))
     g_others = lam_arr * i_others
@@ -149,6 +179,10 @@ def waelbroeck_prices(
         "p_pert": p_pert,
         "i_others": i_others,
         "i_full": i_full,
+        # Underlying OU state being carried (== Ī for linear; == J for canonical AFS).
+        # Used by run_backtest for multi-day carry — pass back in via i_others0/i_full0.
+        "state_others": state_others,
+        "state_full": state_full,
         "g_others": g_others,
         "g_full": g_full,
         "delta_g": delta_g,
@@ -422,6 +456,7 @@ def run_backtest(
                 i_others0=i_others_carry if carry == "multi" else 0.0,
                 i_full0=i_full_carry if carry == "multi" else 0.0,
                 no_initial_decay=carry == "multi",
+                c=model.c,
             )
 
             position = sim["position"] + (pos_carry if carry == "multi" else 0.0)
@@ -514,7 +549,7 @@ def make_optimal_provider(
             ctx.lam if not isinstance(ctx.lam, np.ndarray) else float(np.mean(ctx.lam))
         )
         ibar_init = ibar_carry.get(stock, 0.0) if carry == "multi" else 0.0
-        trades = strategy_fn(
+        kwargs = dict(
             alpha=alpha,
             sigma=ctx.sigma,
             adv=ctx.adv,
@@ -524,12 +559,33 @@ def make_optimal_provider(
             liquidation_minutes=liquidation_minutes,
             ibar_init=ibar_init,
         )
+        # Forward the canonical AFS concavity only to the AFS strategy
+        # (ow_optimal_strategy does not accept it).
+        if ctx.model.strategy.lower() in ("afs", "sqrt"):
+            kwargs["c"] = ctx.model.c
+        trades = strategy_fn(**kwargs)
         if carry == "multi":
             # Compute the ending normalized impact state so the next day's
-            # strategy can pick up from the right initial condition.
+            # strategy can pick up from the right initial condition. Same
+            # canonical/legacy split as `waelbroeck_prices`.
             decay = decay_from_half_life(ctx.model.half_life_minutes)
-            qt = q_tilde(trades, ctx.sigma, ctx.adv, ctx.model.model_type)
-            ibar_carry[stock] = float(ou_recursion(qt, decay, i0=ibar_init)[-1])
+            if ctx.model.model_type == "sqrt":
+                c = ctx.model.c
+                j_init = (
+                    float(np.sign(ibar_init) * (abs(ibar_init) / ctx.sigma) ** (1.0 / c))
+                    if ibar_init != 0.0 and ctx.sigma > 0 else 0.0
+                )
+                j_end = float(
+                    ou_recursion(trades / ctx.adv, decay, i0=j_init)[-1]
+                )
+                ibar_carry[stock] = (
+                    ctx.sigma * np.sign(j_end) * abs(j_end) ** c
+                )
+            else:
+                qt = q_tilde(trades, ctx.sigma, ctx.adv, ctx.model.model_type)
+                ibar_carry[stock] = float(
+                    ou_recursion(qt, decay, i0=ibar_init)[-1]
+                )
         return trades
 
     return provider
