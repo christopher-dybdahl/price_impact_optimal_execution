@@ -144,8 +144,8 @@ def plot_impact_curves(fits_ow, fits_afs, path):
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5), sharey=True)
-    for ax, fits, label in [(axes[0], fits_ow, "OW  (c=1.0, canonical-outside)"),
-                            (axes[1], fits_afs, "AFS (c=0.5, canonical-outside)")]:
+    for ax, fits, label in [(axes[0], fits_ow, "OW  (c = 1.0)"),
+                            (axes[1], fits_afs, "AFS  (c = 0.5)")]:
         if 3 not in fits:
             ax.set_title(f"{label}: no fit for month 3")
             continue
@@ -168,31 +168,48 @@ def plot_impact_curves(fits_ow, fits_afs, path):
         ax.axhline(0, color="k", lw=0.5, alpha=0.3)
         ax.axvline(0, color="k", lw=0.5, alpha=0.3)
     axes[0].set_ylabel("$g(x)$")
-    fig.suptitle("Non-parametric $g(x)$ at train month $m=3$  (H*=52.5)", fontsize=13)
+    fig.suptitle("Non-parametric $g(x)$ at train month $m = 3$", fontsize=13)
     plt.tight_layout()
     plt.savefig(path, dpi=140)
     plt.close(fig)
 
 
 def plot_stress_tuning(stress_fits, path):
+    """One median curve per panel — bowl visible once inter-window noise is removed."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     labels = ["1 month (headline)", "5 days", "2 days"]
     fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=False)
+
+    # All gamma_grids are mn * logspace(-3, 3, 60); γ/n axis aligns windows.
+    gamma_over_n = np.logspace(-3, 3, 60)
+
     for ax, (lab, fits) in zip(axes, zip(labels, stress_fits)):
         if fits is None:
             ax.set_title(lab)
             continue
-        for tm, fit in sorted(fits.items()):
-            ax.plot(fit.gamma_grid, fit.gamma_mses, alpha=0.4, lw=0.8)
+        mse_stack = np.stack([fit.gamma_mses for _, fit in sorted(fits.items())])
+        median_mse = np.median(mse_stack, axis=0)
+        i_star = int(np.argmin(median_mse))
+        gamma_n_star = float(gamma_over_n[i_star])
+
+        ax.plot(gamma_over_n, median_mse, lw=2.0, color="#1f77b4")
+        ax.axvline(
+            gamma_n_star, color="k", ls="--", lw=0.9, alpha=0.7,
+            label=rf"$\gamma^\star / n$ = {gamma_n_star:.2f}",
+        )
         ax.set_xscale("log")
-        ax.set_xlabel("$\\gamma$")
+        ax.set_xlabel(r"$\gamma / n$")
         ax.set_title(lab)
-    axes[0].set_ylabel("Test-month MSE")
-    fig.suptitle("$\\gamma$ tuning curves — OW (canonical) at three training-window sizes",
-                 fontsize=13)
+        ax.legend(fontsize=9, loc="best", frameon=False)
+
+    axes[0].set_ylabel("Test-month MSE (median over windows)")
+    fig.suptitle(
+        r"$\gamma$ tuning curves — OW, median across rolling windows",
+        fontsize=13,
+    )
     plt.tight_layout()
     plt.savefig(path, dpi=140)
     plt.close(fig)
@@ -209,9 +226,9 @@ def plot_param_vs_np(headline_df, path):
     ax.bar(x - w / 2, headline_df["parametric"], w, label="Parametric", color="steelblue")
     ax.bar(x + w / 2, headline_df["np_reg"], w, label="NP regularised", color="darkorange")
     ax.set_xticks(x)
-    ax.set_xticklabels(headline_df["model"])
+    ax.set_xticklabels([m.upper() for m in headline_df["model"]])
     ax.set_ylabel("Pooled OOS $R^2$")
-    ax.set_title("Parametric vs NP — canonical AFS pipeline (H*=52.5)")
+    ax.set_title("Parametric vs NP — OW vs AFS")
     ax.legend()
     plt.tight_layout()
     plt.savefig(path, dpi=140)
@@ -275,9 +292,9 @@ def main():
     # Figures
     print("\nFigures →", FIGURES)
     plot_impact_curves(all_fits["ow"], all_fits["afs"], FIGURES / "impact_curves.png")
-    plot_stress_tuning(ow_stress_fits, FIGURES / "stress_tuning.png")
+    plot_stress_tuning(ow_stress_fits, FIGURES / "tuning.png")
     plot_param_vs_np(hdf, FIGURES / "parametric_vs_nonparametric.png")
-    print("  saved impact_curves.png, stress_tuning.png, parametric_vs_nonparametric.png")
+    print("  saved impact_curves.png, tuning.png, parametric_vs_nonparametric.png")
     print(f"\nTotal: {time.time() - t0:.1f}s")
 
 
