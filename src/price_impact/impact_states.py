@@ -1,34 +1,25 @@
-"""Normalised impact states Ī.
+"""Canonical AFS-family impact states — single point of truth.
 
-Two carry modes are produced **side by side** on the same bin-level panel,
-so that downstream consumers (fitting, backtesting) can pick whichever they
-need without recomputing:
+The impact model is the canonical Alfonsi--Fruth--Schied specification:
 
-    - `I_bar_daily` : reset Ī to 0 at the start of each (stock, date).
-    - `I_bar_multi` : carry Ī across days within a stock exactly as it ended
-                      on the previous session, with no overnight decay.
+    J_{t+1} = (1 - β)·J_t + q_t / ADV_d        (linear OU on q / ADV)
+    Ī_t    = σ_d · sign(J_t) · |J_t|^c          (power-law shape applied OUTSIDE)
 
-Two flavours of the recursion live here:
+where the two carry modes are produced side by side on the same bin-level panel:
 
-1. **Legacy** (``compute_impact_states``) — OU on the σ-scaled normalised flow,
-   with the model-specific transform applied *inside* the recursion. The sqrt
-   branch in this form is **not** canonical Alfonsi–Fruth–Schied — see
-   ``compute_impact_states_concave`` for the canonical version.
+    - ``I_bar_daily`` : reset J to 0 at the start of each (stock, date).
+    - ``I_bar_multi`` : carry J across days within a stock with no overnight decay.
 
-       Ī_{t+1} = (1 - β) Ī_t + q̃_t
-       linear (OW):   q̃_t = σ_d * q_t / ADV_d
-       sqrt  (legacy): q̃_t = σ_d * sign(q_t) * sqrt(|q_t| / ADV_d)
+Convention:
+    c = 1.0 → OW linear. Note: for c=1 the σ factors out of the OU, so
+              Ī ≡ σ·J, which is identical to the legacy linear OW formula
+              q̃ = σ·q/ADV inside the OU.
+    c = 0.5 → canonical AFS square-root.
 
-2. **Canonical AFS-family** (``compute_impact_states_concave``) — linear OU
-   on q/ADV with the concave transform applied *outside*:
-
-       J_{t+1} = (1 - β) J_t + q_t / ADV_d
-       Ī_t    = σ_d · sign(J_t) · |J_t|^c
-
-   c = 1   → linear (OW-equivalent on a daily-reset day, since σ is constant
-            within the day and factors out of the linear OU).
-   c = 0.5 → canonical AFS (Alfonsi–Fruth–Schied square-root).
-   c ∈ (0.5, 1) → generalised concave family between them.
+Two pure helpers below — ``apply_concavity`` and ``invert_concavity`` — are
+imported by ``backtest.waelbroeck_prices`` and ``strategy.optimal_strategy``
+so all call-sites share **one** formula.  Add a new c value here, every
+downstream consumer follows.
 """
 
 from __future__ import annotations
@@ -43,6 +34,9 @@ ModelType = Literal["linear", "sqrt"]
 BINS_PER_MINUTE = 6
 
 
+# ---------------------------------------------------------------------------
+# Half-life / decay helpers.
+# ---------------------------------------------------------------------------
 def beta_from_half_life(half_life_minutes: float) -> float:
     return float(np.log(2.0) / (half_life_minutes * BINS_PER_MINUTE))
 
@@ -52,7 +46,7 @@ def decay_from_half_life(half_life_minutes: float) -> float:
 
 
 def overnight_decay(half_life_minutes: float, overnight_minutes: float = 0.0) -> float:
-    """Multiplicative decay applied to Ī across an overnight gap (no flow)."""
+    """Multiplicative decay over an overnight gap (kept for API compatibility)."""
     if overnight_minutes <= 0:
         return 1.0
     return float(
@@ -60,62 +54,124 @@ def overnight_decay(half_life_minutes: float, overnight_minutes: float = 0.0) ->
     )
 
 
-def q_tilde(
-    orderflow: np.ndarray, sigma: float, adv: float, model_type: ModelType
-) -> np.ndarray:
-    q = np.asarray(orderflow, dtype=float)
+# ---------------------------------------------------------------------------
+# Single point of truth: canonical concavity layer.
+# ---------------------------------------------------------------------------
+def apply_concavity(j, sigma, c: float):
+    """Ī = σ · sign(J) · |J|^c  (canonical AFS shape, applied OUTSIDE the OU).
+
+    Use after computing J = OU(q/ADV). c=1 → linear (Ī = σ·J); c=0.5 → sqrt.
+    Vectorised; ``j`` can be scalar or array, ``sigma`` scalar or array of matching shape.
+    """
+    j = np.asarray(j, dtype=float)
+    sigma_arr = np.asarray(sigma, dtype=float)
+    return sigma_arr * np.sign(j) * np.power(np.abs(j), c)
+
+
+def invert_concavity(ibar, sigma, c: float):
+    """J = sign(Ī) · (|Ī| / σ)^(1/c)  — exact inverse of ``apply_concavity``.
+
+    Used by ``strategy.optimal_strategy`` to convert a target Ī* into the J*
+    state to drive, and by ``backtest.waelbroeck_prices`` to convert a carried
+    Ī initial state into the J initial state for the next day's OU.
+    """
+    ibar = np.asarray(ibar, dtype=float)
+    sigma_arr = np.asarray(sigma, dtype=float)
+    if np.any(sigma_arr <= 0):
+        return np.zeros_like(ibar) if ibar.ndim else np.float64(0.0)
+    return np.sign(ibar) * np.power(np.abs(ibar) / sigma_arr, 1.0 / c)
+
+
+def resolve_c(model_type: ModelType | None, c: float | None) -> float:
+    """Resolve concavity from (model_type, c) inputs. c wins when set."""
+    if c is not None:
+        return float(c)
     if model_type == "linear":
-        return sigma * q / adv
-    return sigma * np.sign(q) * np.sqrt(np.abs(q) / adv)
+        return 1.0
+    if model_type == "sqrt":
+        return 0.5
+    raise ValueError(f"specify c or model_type ∈ {{'linear','sqrt'}}, got {model_type!r}")
 
 
-def _ou_filter_daily(q_tilde_arr: np.ndarray, decay: float) -> np.ndarray:
-    """Single-day OU with Ī before the first bin = 0 (same recursion as multi on a reset day).
+# ---------------------------------------------------------------------------
+# Legacy alias kept for back-compat imports. The ARGUMENT semantics are now
+# canonical: this is the σ-scaled flow ratio raised to power c, useful only
+# for per-bin display. The canonical Ī uses ``apply_concavity`` instead.
+# ---------------------------------------------------------------------------
+def q_tilde(orderflow, sigma, adv, c: float = 1.0):
+    """Per-bin σ-scaled flow ratio σ·sign(q)·|q/ADV|^c.
 
-    Implemented via ``_ou_filter_carry(..., i0=0)`` so ``I_bar_daily`` matches
-    ``I_bar_multi`` bit-for-bit on the first session day. SciPy ``lfilter`` is
-    mathematically equivalent but can drift at ~1e-5 over ~2k bins from different
-    float associativity.
+    Kept for backward-compat with old call-sites. In the canonical AFS
+    pipeline this function is **not** the input to the OU — the OU runs on
+    the dimensionless ``q/ADV`` and ``apply_concavity`` is then applied
+    OUTSIDE the OU.
     """
-    return _ou_filter_carry(np.asarray(q_tilde_arr, dtype=float), decay, 0.0)
+    q = np.asarray(orderflow, dtype=float)
+    return sigma * np.sign(q) * np.power(np.abs(q / adv), c)
 
 
-def _ou_filter_carry(q_tilde_arr: np.ndarray, decay: float, i0: float) -> np.ndarray:
-    """OU recursion starting from a non-zero initial state.
+# ---------------------------------------------------------------------------
+# OU filter helpers.
+# ---------------------------------------------------------------------------
+def _ou_filter_daily(x: np.ndarray, decay: float) -> np.ndarray:
+    """Single-day OU starting from state 0 (Python loop — bit-exact)."""
+    return _ou_filter_carry(np.asarray(x, dtype=float), decay, 0.0)
 
-    The first bin starts exactly from ``i0`` rather than applying a synthetic
-    overnight decay step before the first observed flow.
-    """
-    qt = np.asarray(q_tilde_arr, dtype=float)
-    n = qt.shape[0]
+
+def _ou_filter_carry(x: np.ndarray, decay: float, i0: float) -> np.ndarray:
+    """OU recursion starting from non-zero initial state ``i0``."""
+    x = np.asarray(x, dtype=float)
+    n = x.shape[0]
     out = np.empty(n)
     state = float(i0)
     for t in range(n):
-        state = (state if t == 0 else decay * state) + qt[t]
+        state = (state if t == 0 else decay * state) + x[t]
         out[t] = state
     return out
 
 
+def _lfilter_ou(series: pd.Series, decay: float) -> np.ndarray:
+    """Vectorised OU via scipy.signal.lfilter (state resets to 0 each call)."""
+    from scipy.signal import lfilter
+
+    return lfilter([1.0], [1.0, -decay], series.to_numpy(dtype=float))
+
+
+# ---------------------------------------------------------------------------
+# Main panel-builder: canonical impact states.
+# ---------------------------------------------------------------------------
 def compute_impact_states(
     data: pd.DataFrame,
     daily_stats: pd.DataFrame,
     half_life_minutes: float,
-    model_type: ModelType = "linear",
+    model_type: ModelType | None = "linear",
+    c: float | None = None,
     overnight_minutes: float = 0.0,
     stock_col: str = "stock",
     date_col: str = "date",
     time_col: str = "time",
     order_flow_col: str = "trade",
 ) -> pd.DataFrame:
-    """Compute both daily-reset and multi-day impact states on the bin panel.
+    """Canonical AFS-family impact states (single source of truth).
 
-    ``overnight_minutes`` is retained for API compatibility. Multi-day carry
-    intentionally applies no overnight decay: the next session starts from the
-    previous session's closing impact state, as if trading were continuous.
+    Linear OU on q/ADV; concave transform applied to the aggregated state:
 
-    Returns a DataFrame aligned to ``data`` with columns:
-        [stock, date, time, q_tilde, I_bar_daily, I_bar_multi]
+        J_t = (1 - β)·J_{t-1} + q_t / ADV_d
+        Ī_t = σ_d · sign(J_t) · |J_t|^c                ← ``apply_concavity``
+
+    c is taken from the ``c`` argument if provided, else derived from
+    ``model_type`` (linear → 1.0, sqrt → 0.5). ``overnight_minutes`` is
+    accepted for API compatibility; multi-day carry does not apply overnight
+    decay.
+
+    Returns
+    -------
+    DataFrame aligned to ``data`` with columns
+        [stock, date, time, sigma, ADV, J_daily, J_multi, I_bar_daily, I_bar_multi]
     """
+    c_val = resolve_c(model_type, c)
+    _ = overnight_minutes
+
     df = data[[stock_col, date_col, time_col, order_flow_col]].merge(
         daily_stats[["sigma", "ADV"]].reset_index(),
         on=[stock_col, date_col],
@@ -124,43 +180,31 @@ def compute_impact_states(
     df = df.sort_values([stock_col, date_col, time_col]).reset_index(drop=True)
 
     decay = decay_from_half_life(half_life_minutes)
-    _ = overnight_minutes
 
-    # Vectorised q_tilde.
-    if model_type == "linear":
-        df["q_tilde"] = df["sigma"] * df[order_flow_col] / df["ADV"]
-    else:
-        df["q_tilde"] = (
-            df["sigma"]
-            * np.sign(df[order_flow_col])
-            * np.sqrt(np.abs(df[order_flow_col]) / df["ADV"])
-        )
+    # Dimensionless linear flow per bin. σ stays OUTSIDE the OU.
+    df["q_lin"] = df[order_flow_col] / df["ADV"]
 
-    # Daily-reset Ī: same inner loop as multi (i0=0 each day) for numerical agreement.
-    df["I_bar_daily"] = df.groupby([stock_col, date_col])["q_tilde"].transform(
-        lambda x: _ou_filter_daily(x.values, decay)
+    # Daily-reset linear OU on q_lin.
+    df["J_daily"] = df.groupby([stock_col, date_col])["q_lin"].transform(
+        lambda g: _lfilter_ou(g, decay)
     )
 
-    # Multi-day Ī: carry across days within a stock without overnight decay.
-    multi_parts: list[np.ndarray] = []
-    indices: list[np.ndarray] = []
-    for _, gs in df.groupby(stock_col, sort=False):
-        i0 = 0.0
-        for _, gd in gs.groupby(date_col, sort=False):
-            gd_sorted = gd.sort_values(time_col)
-            qt = gd_sorted["q_tilde"].to_numpy(dtype=float)
-            i_day = _ou_filter_carry(qt, decay, i0)
-            multi_parts.append(i_day)
-            indices.append(gd_sorted.index.to_numpy())
-            i0 = float(i_day[-1]) if len(i_day) else i0
+    # Multi-day linear OU on q_lin (one continuous filter per stock).
+    df["J_multi"] = df.groupby(stock_col, sort=False)["q_lin"].transform(
+        lambda g: _lfilter_ou(g, decay)
+    )
 
-    flat_idx = np.concatenate(indices) if indices else np.empty(0, dtype=int)
-    flat_vals = np.concatenate(multi_parts) if multi_parts else np.empty(0)
-    multi = pd.Series(flat_vals, index=flat_idx, name="I_bar_multi")
-    df["I_bar_multi"] = multi.reindex(df.index)
+    # Apply the concave transform on the aggregated state.
+    sig = df["sigma"].to_numpy(dtype=float)
+    df["I_bar_daily"] = apply_concavity(df["J_daily"].to_numpy(dtype=float), sig, c_val)
+    df["I_bar_multi"] = apply_concavity(df["J_multi"].to_numpy(dtype=float), sig, c_val)
 
-    cols = [stock_col, date_col, time_col, "q_tilde", "I_bar_daily", "I_bar_multi"]
-    return df[cols]
+    return df[[
+        stock_col, date_col, time_col,
+        "sigma", "ADV",
+        "J_daily", "J_multi",
+        "I_bar_daily", "I_bar_multi",
+    ]]
 
 
 def select_i_bar_column(carry: Literal["daily", "multi"]) -> str:
@@ -171,96 +215,15 @@ def select_i_bar_column(carry: Literal["daily", "multi"]) -> str:
     raise ValueError(f"carry must be 'daily' or 'multi', got {carry!r}")
 
 
-# ---------------------------------------------------------------------------
-# Canonical AFS-family: linear OU on q/ADV, concavity α on the outside.
-# ---------------------------------------------------------------------------
-def _lfilter_ou_daily(series: pd.Series, decay: float) -> np.ndarray:
-    """Vectorised per-group OU filter via scipy.signal.lfilter.
-
-    Equivalent to ``state ← decay·state + x[t]`` with state reset to 0 at the
-    start of each group. ~100× faster than the Python loop and matches it to
-    O(1e-5) — fine for grid search where we compare R² values, not paths.
-    """
-    from scipy.signal import lfilter
-
-    return lfilter([1.0], [1.0, -decay], series.to_numpy(dtype=float))
-
-
-def _lfilter_ou_carry(series: pd.Series, decay: float) -> np.ndarray:
-    """OU filter across the whole series, no reset between contiguous groups.
-
-    Used for the multi-day carry: state at the start of day d is
-    ``decay·state_end_of_(d-1) + 0`` (lfilter's natural behaviour), which
-    differs from the legacy ``_ou_filter_carry`` only at day boundaries
-    (legacy adds the first-bin flow without decaying the carry). The effect
-    is one bin per day, so on R² comparisons it is negligible.
-    """
-    from scipy.signal import lfilter
-
-    return lfilter([1.0], [1.0, -decay], series.to_numpy(dtype=float))
-
-
+# Backward-compat alias used by fitting.concavity_grid_search and elsewhere.
 def compute_impact_states_concave(
     data: pd.DataFrame,
     daily_stats: pd.DataFrame,
     half_life_minutes: float,
     c: float,
-    stock_col: str = "stock",
-    date_col: str = "date",
-    time_col: str = "time",
-    order_flow_col: str = "trade",
+    **kwargs,
 ) -> pd.DataFrame:
-    """Canonical AFS-family impact states.
-
-    Linear OU on q/ADV; concave transform applied to the aggregated state:
-
-        J_t  = (1 - β)·J_{t-1} + q_t / ADV_d
-        Ī_t = σ_d · sign(J_t) · |J_t|^c
-
-    c = 1   → linear (OW-equivalent on daily-reset; σ factors out of OU).
-    c = 0.5 → canonical Alfonsi–Fruth–Schied square-root impact.
-
-    Returns
-    -------
-    DataFrame aligned to ``data`` with columns
-        [stock, date, time, sigma, ADV, J_daily, J_multi,
-         I_bar_daily, I_bar_multi]
-
-    The Ī columns are the only ones consumed by ``build_regression_features``;
-    J columns are exposed so the same H-cache can be reused across c values
-    (concavity is a pointwise pow(), so the expensive OU only runs once per H).
-    """
-    df = data[[stock_col, date_col, time_col, order_flow_col]].merge(
-        daily_stats[["sigma", "ADV"]].reset_index(),
-        on=[stock_col, date_col],
-        how="inner",
+    """Alias for :func:`compute_impact_states` with explicit ``c``."""
+    return compute_impact_states(
+        data, daily_stats, half_life_minutes, model_type=None, c=c, **kwargs
     )
-    df = df.sort_values([stock_col, date_col, time_col]).reset_index(drop=True)
-
-    decay = decay_from_half_life(half_life_minutes)
-
-    # Dimensionless linear flow per bin (σ stays outside the OU).
-    df["q_lin"] = df[order_flow_col] / df["ADV"]
-
-    # Daily-reset linear OU on q_lin.
-    df["J_daily"] = df.groupby([stock_col, date_col])["q_lin"].transform(
-        lambda g: _lfilter_ou_daily(g, decay)
-    )
-
-    # Multi-day linear OU on q_lin (one continuous filter per stock).
-    df["J_multi"] = df.groupby(stock_col, sort=False)["q_lin"].transform(
-        lambda g: _lfilter_ou_carry(g, decay)
-    )
-
-    # Apply the concave transform on the aggregated state.
-    for j_col, i_col in (("J_daily", "I_bar_daily"), ("J_multi", "I_bar_multi")):
-        J = df[j_col].to_numpy(dtype=float)
-        df[i_col] = df["sigma"].to_numpy(dtype=float) * np.sign(J) * np.power(np.abs(J), c)
-
-    out_cols = [
-        stock_col, date_col, time_col,
-        "sigma", "ADV",
-        "J_daily", "J_multi",
-        "I_bar_daily", "I_bar_multi",
-    ]
-    return df[out_cols]
