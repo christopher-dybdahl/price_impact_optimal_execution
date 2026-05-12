@@ -38,41 +38,53 @@ def ow_optimal_strategy(
     half_life_minutes: float,
     max_position_adv: float = 0.005,
     liquidation_minutes: int = 30,
+    ibar_init: float = 0.0,
 ) -> np.ndarray:
     """OW-optimal intraday execution.
 
-    Target position:   X*_t = α_t · ADV / (2 λ σ),  clipped to ±`max_position_adv`·ADV.
-    Position update:   q_t = κ · (X*_t − X_{t-1}),  κ = β = ln 2 / H_bins.
-    Position is ramped down linearly over the final `liquidation_minutes`.
+    Target normalized impact state:
+        Ī*_t = α_t / (2λ)   so that  λ·Ī*_t = α_t/2  (HJB: pay half alpha in impact)
+
+    Trade per bin recovered by inverting the linear impact recursion:
+        decay = 1 − β,   β = ln 2 / H_bins
+        z_t   = Ī*_t − decay · Ī_{t−1}
+        q*_t  = ADV · z_t / σ              (linear inversion of q̃ = σ q / ADV)
+
+    Structurally identical to AFS — target an impact state, invert the recursion —
+    but uses the linear inversion instead of the sqrt one.  The loop tracks the
+    actual impact state Ī_prev from the clipped trade so the recursion inversion
+    remains exact when the position cap binds.
     """
     alpha = np.asarray(alpha, dtype=float)
-    # The synthetic alpha leaves NaN at the last h_bins of each day (no
-    # fwd_ret defined); treat those as "no view" so they do not poison
-    # the cumulative position via NaN propagation.
     alpha = np.where(np.isfinite(alpha), alpha, 0.0)
     n = alpha.shape[0]
-    if lam <= 0 or n == 0:
+    if lam <= 0 or n == 0 or sigma <= 0 or adv <= 0 or half_life_minutes <= 0:
         return np.zeros(n)
 
     H_bins = half_life_minutes * BINS_PER_MINUTE
     beta = np.log(2.0) / H_bins
-    kappa = beta
+    decay = 1.0 - beta
 
-    target = alpha * adv / (2.0 * lam * sigma)
-    max_pos = max_position_adv * adv
-    target = np.clip(target, -max_pos, max_pos)
+    ibar_star = alpha / (2.0 * lam)
 
     liq_bins = min(liquidation_minutes * BINS_PER_MINUTE, n)
     if liq_bins > 0:
         ramp = np.ones(n)
         ramp[n - liq_bins :] = np.linspace(1.0, 0.0, liq_bins)
-        target = target * ramp
+        ibar_star = ibar_star * ramp
 
+    max_pos = max_position_adv * adv
     pos = 0.0
+    ibar_prev = float(ibar_init)
     trades = np.zeros(n)
     for t in range(n):
-        trades[t] = kappa * (target[t] - pos)
-        pos += trades[t]
+        z = ibar_star[t] - decay * ibar_prev
+        q_desired = adv * z / sigma
+        new_pos = float(np.clip(pos + q_desired, -max_pos, max_pos))
+        q = new_pos - pos
+        pos = new_pos
+        trades[t] = q
+        ibar_prev = decay * ibar_prev + sigma * q / adv
     return trades
 
 
@@ -88,6 +100,7 @@ def afs_optimal_strategy(
     max_position_adv: float = 0.005,
     liquidation_minutes: int = 30,
     c: float = 0.5,
+    ibar_init: float = 0.0,
 ) -> np.ndarray:
     """AFS (sqrt) optimal execution.
 
@@ -99,13 +112,12 @@ def afs_optimal_strategy(
         z_t   = Ī*_t − decay · Ī_{t−1}
         q*_t  = ADV · sign(z_t) · (|z_t| / σ)²
 
-    The end-of-day ramp is applied to Ī* before the loop — the same
-    project convention as OW's ramp on its target position.  AFS differs
-    from OW only in the trade-generation step: it inverts the sqrt impact
-    recursion rather than approaching a share-space target at rate κ.  The
-    loop tracks cumulative position and clips it to ±`max_position_adv`·ADV
-    (consistent with OW's share-space cap), then updates Ī_prev from the
-    clipped trade so the recursion inversion remains exact.
+    The end-of-day ramp is applied to Ī* before the loop.  AFS differs
+    from OW only in the inversion step: sqrt impact requires the quadratic
+    inversion  q = ADV · sign(z) · (|z|/σ)²,  whereas linear OW uses the
+    linear inversion  q = ADV · z / σ.  Both strategies track cumulative
+    position and clip to ±`max_position_adv`·ADV, then update Ī_prev from
+    the actual clipped trade so the recursion inversion remains exact.
     """
     alpha = np.asarray(alpha, dtype=float)
     alpha = np.where(np.isfinite(alpha), alpha, 0.0)
@@ -127,7 +139,7 @@ def afs_optimal_strategy(
 
     max_pos = max_position_adv * adv
     pos = 0.0
-    ibar_prev = 0.0
+    ibar_prev = float(ibar_init)
     trades = np.zeros(n)
     for t in range(n):
         z = ibar_star[t] - decay * ibar_prev

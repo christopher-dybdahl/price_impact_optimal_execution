@@ -498,18 +498,23 @@ def make_optimal_provider(
     max_position_adv: float = 0.005,
     liquidation_minutes: int = 30,
     alpha_col: str = "alpha",
+    carry: str = "daily",
 ):
-    """Return a trade provider that calls `strategy_fn` per (stock, date)."""
+    """Return a trade provider that calls `strategy_fn` per (stock, date).
+
+    When ``carry="multi"``, the ending normalized impact state Ī from each day
+    is carried forward as ``ibar_init`` for the same stock on the next day,
+    so the strategy continues from where it left off rather than resetting to 0.
+    """
+    ibar_carry: dict[str, float] = {}
 
     def provider(stock, date, day_df, ctx: BacktestContext) -> np.ndarray:
         alpha = day_df[alpha_col].to_numpy(dtype=float)
-        # For time-dependent λ, pass the array; the simple OW strategy ignores
-        # vector λ (it expects scalar) so callers using ext-OW must supply
-        # their own provider.
         lam_arg = (
             ctx.lam if not isinstance(ctx.lam, np.ndarray) else float(np.mean(ctx.lam))
         )
-        return strategy_fn(
+        ibar_init = ibar_carry.get(stock, 0.0) if carry == "multi" else 0.0
+        trades = strategy_fn(
             alpha=alpha,
             sigma=ctx.sigma,
             adv=ctx.adv,
@@ -517,7 +522,15 @@ def make_optimal_provider(
             half_life_minutes=ctx.model.half_life_minutes,
             max_position_adv=max_position_adv,
             liquidation_minutes=liquidation_minutes,
+            ibar_init=ibar_init,
         )
+        if carry == "multi":
+            # Compute the ending normalized impact state so the next day's
+            # strategy can pick up from the right initial condition.
+            decay = decay_from_half_life(ctx.model.half_life_minutes)
+            qt = q_tilde(trades, ctx.sigma, ctx.adv, ctx.model.model_type)
+            ibar_carry[stock] = float(ou_recursion(qt, decay, i0=ibar_init)[-1])
+        return trades
 
     return provider
 
