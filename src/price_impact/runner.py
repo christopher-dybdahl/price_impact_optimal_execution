@@ -147,6 +147,7 @@ def run_one(
             _strategy_fn_for(cfg.strategy),
             max_position_adv=cfg.max_position_adv,
             liquidation_minutes=effective_liq,
+            carry=cfg.carry,
         )
     return run_backtest(
         merged=merged,
