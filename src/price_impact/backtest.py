@@ -80,10 +80,11 @@ def waelbroeck_prices(
     half_life_minutes: float,
     sigma: float,
     adv: float,
-    model_type: ModelType = "linear",
+    c: float = 0.5,
     i_others0: float = 0.0,
     i_full0: float = 0.0,
     no_initial_decay: bool = False,
+    model_type: ModelType | None = None,  # kept for call-site compatibility; c takes precedence
 ) -> dict[str, np.ndarray]:
     """Simulate one (stock, date) session.
 
@@ -101,14 +102,16 @@ def waelbroeck_prices(
     Returns
     -------
     dict with keys:
-        p_mid      — observed mid used to define the common baseline return
-        p_unpert   — no-us Waelbroeck path, driven by q_others
-        p_pert     — with-us Waelbroeck path, driven by q_agg
-        i_others   — impact state Ī(q_agg - q_us)
-        i_full     — impact state Ī(q_agg)
-        g_others   — λ · Ī_others   (or λ_t · Ī_others for time-dep λ)
+        p_mid      — observed mid price
+        p_unpert   — Waelbroeck "no-us" path: P0·(1 + cum_ret + g_others)
+        p_pert     — Waelbroeck "with-us" path: P0·(1 + cum_ret + g_full)
+                     p_pert − p_unpert = P0·delta_g = P0·(g_full − g_others)
+                     — our AFS-marginal price impact (handles c < 1 non-additivity).
+        i_others   — OU impact state Ī(q_others), q_tilde uses exponent c
+        i_full     — OU impact state Ī(q_agg),    q_tilde uses exponent c
+        g_others   — λ · Ī_others
         g_full     — λ · Ī_full
-        delta_g    — g_full - g_others
+        delta_g    — g_full − g_others  (our AFS-marginal price impact, not g(q_us))
         position   — cumulative position from q_us (shares)
         cum_ret    — cumulative observed mid return from P0
 
@@ -123,9 +126,12 @@ def waelbroeck_prices(
         raise ValueError("mid, q_agg, q_us must have the same length")
     n = len(mid)
 
+    # model_type kept for backward compatibility; c is the authoritative parameter.
+    _ = model_type
+
     q_others = q_agg - q_us
-    qt_others = q_tilde(q_others, sigma, adv, model_type)
-    qt_full = q_tilde(q_agg, sigma, adv, model_type)
+    qt_others = q_tilde(q_others, sigma, adv, c)
+    qt_full = q_tilde(q_agg, sigma, adv, c)
     decay = decay_from_half_life(half_life_minutes)
 
     i_others = ou_recursion(
@@ -139,6 +145,11 @@ def waelbroeck_prices(
     delta_g = g_full - g_others
 
     cum_ret = (mid - mid[0]) / mid[0] if mid[0] != 0 else np.zeros(n)
+    # Waelbroeck price construction: mid ≈ fundamental price, impact is a small additive correction.
+    # p_unpert = price path if only others trade  (mid + P0·g_others).
+    # p_pert   = price path with all trading      (mid + P0·g_full).
+    # Difference p_pert − p_unpert = P0·(g_full − g_others) = P0·delta_g,
+    # which correctly captures our AFS-marginal contribution even for c < 1 (non-additive q_tilde).
     p_unpert = mid[0] * (1.0 + cum_ret + g_others)
     p_pert = mid[0] * (1.0 + cum_ret + g_full)
     position = np.cumsum(q_us)
@@ -418,7 +429,7 @@ def run_backtest(
                 half_life_minutes=model.half_life_minutes,
                 sigma=sigma,
                 adv=adv,
-                model_type=model.model_type,
+                c=model.c,
                 i_others0=i_others_carry if carry == "multi" else 0.0,
                 i_full0=i_full_carry if carry == "multi" else 0.0,
                 no_initial_decay=carry == "multi",
@@ -523,12 +534,14 @@ def make_optimal_provider(
             max_position_adv=max_position_adv,
             liquidation_minutes=liquidation_minutes,
             ibar_init=ibar_init,
+            c=ctx.model.c,
         )
         if carry == "multi":
             # Compute the ending normalized impact state so the next day's
             # strategy can pick up from the right initial condition.
+            # Uses q_tilde with model.c — same formula as the strategy loop.
             decay = decay_from_half_life(ctx.model.half_life_minutes)
-            qt = q_tilde(trades, ctx.sigma, ctx.adv, ctx.model.model_type)
+            qt = q_tilde(trades, ctx.sigma, ctx.adv, ctx.model.c)
             ibar_carry[stock] = float(ou_recursion(qt, decay, i0=ibar_init)[-1])
         return trades
 

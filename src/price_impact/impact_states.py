@@ -49,12 +49,15 @@ def overnight_decay(half_life_minutes: float, overnight_minutes: float = 0.0) ->
 
 
 def q_tilde(
-    orderflow: np.ndarray, sigma: float, adv: float, model_type: ModelType
+    orderflow: np.ndarray, sigma: float, adv: float, c: float = 0.5
 ) -> np.ndarray:
+    """Normalised flow: σ · sign(q) · |q/ADV|^c.
+
+    Single point of truth for the AFS/OW impact normalisation.
+    c=0.5 → AFS sqrt model.  c=1.0 → OW linear model (sign(q)·|q|^1 = q).
+    """
     q = np.asarray(orderflow, dtype=float)
-    if model_type == "linear":
-        return sigma * q / adv
-    return sigma * np.sign(q) * np.sqrt(np.abs(q) / adv)
+    return sigma * np.sign(q) * np.abs(q / adv) ** c
 
 
 def _ou_filter_daily(q_tilde_arr: np.ndarray, decay: float) -> np.ndarray:
@@ -89,6 +92,7 @@ def compute_impact_states(
     daily_stats: pd.DataFrame,
     half_life_minutes: float,
     model_type: ModelType = "linear",
+    c: float | None = None,
     overnight_minutes: float = 0.0,
     stock_col: str = "stock",
     date_col: str = "date",
@@ -114,15 +118,16 @@ def compute_impact_states(
     decay = decay_from_half_life(half_life_minutes)
     _ = overnight_minutes
 
-    # Vectorised q_tilde.
-    if model_type == "linear":
-        df["q_tilde"] = df["sigma"] * df[order_flow_col] / df["ADV"]
-    else:
-        df["q_tilde"] = (
-            df["sigma"]
-            * np.sign(df[order_flow_col])
-            * np.sqrt(np.abs(df[order_flow_col]) / df["ADV"])
-        )
+    # Resolve c from explicit arg, falling back to model_type convention.
+    if c is None:
+        c = 1.0 if model_type == "linear" else 0.5
+
+    # Vectorised q_tilde — single formula, consistent with the q_tilde() function.
+    df["q_tilde"] = (
+        df["sigma"]
+        * np.sign(df[order_flow_col])
+        * np.abs(df[order_flow_col] / df["ADV"]) ** c
+    )
 
     # Daily-reset Ī: same inner loop as multi (i0=0 each day) for numerical agreement.
     df["I_bar_daily"] = df.groupby([stock_col, date_col])["q_tilde"].transform(
