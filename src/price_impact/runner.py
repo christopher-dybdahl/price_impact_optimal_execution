@@ -45,16 +45,17 @@ class BacktestConfig:
     """All knobs for one backtest run. Pass to :func:`run_and_save`."""
 
     name: str
-    model_type: ModelType = "linear"  # 'linear' (OW) or 'sqrt' (AFS)
+    model_type: ModelType = "linear"  # 'linear' (OW) or 'sqrt' (canonical AFS)
     strategy: str = "ow"  # 'ow' | 'afs' | 'ext_ow'
     carry: CarryMode = "daily"  # 'daily' | 'multi'
     half_life_minutes: float = 60.0
-    tau_bins: int = 180  # τ explanation horizon
+    tau_bins: int = 6  # τ explanation horizon (1 min)
     rho: float = 0.05  # synthetic-alpha correlation target
     h_alpha_bins: int = 1  # α horizon
     max_position_adv: float = 0.005
     liquidation_minutes: int = 30
     overnight_minutes: float = 16 * 60          # retained for compatibility; no multi-day impact decay
+    c: float = 0.5  # canonical AFS concavity (used when model_type='sqrt')
     seed: int = 42
     save_root: Path | str = field(default_factory=lambda: Path("saved"))
 
@@ -90,6 +91,7 @@ def build_impact_model(
         lam_lookup=lam_lookup,
         lam_t_lookup=lam_t_lookup,
         strategy=cfg.strategy,
+        c=cfg.c,
     )
 
 

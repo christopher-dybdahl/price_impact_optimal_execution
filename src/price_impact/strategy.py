@@ -102,22 +102,31 @@ def afs_optimal_strategy(
     c: float = 0.5,
     ibar_init: float = 0.0,
 ) -> np.ndarray:
-    """AFS (sqrt) optimal execution.
+    """Canonical AFS-family optimal execution at concavity ``c``.
 
-    Target normalized impact state (concavity c = 0.5 for sqrt AFS):
+    The impact model is the canonical AFS specification:
+
+        J_{t+1} = (1 - β) J_t + q_t / ADV          (linear OU on q/ADV)
+        Ī_t    = σ · sign(J_t) · |J_t|^c
+
+    HJB target normalised impact state (one half-alpha rule generalised
+    to concavity c):
         Ī*_t = α_t / ((1 + c) · λ)
 
-    Trade per bin recovered by inverting the AFS impact recursion:
-        decay = 1 − β,   β = ln 2 / H_bins
-        z_t   = Ī*_t − decay · Ī_{t−1}
-        q*_t  = ADV · sign(z_t) · (|z_t| / σ)²
+    The trade per bin is recovered by inverting both layers of the
+    recursion. First map the target Ī* through the inverse of the
+    concave shape to obtain a target J*:
+        J*_t = sign(Ī*_t) · (|Ī*_t| / σ)^(1/c)
 
-    The end-of-day ramp is applied to Ī* before the loop.  AFS differs
-    from OW only in the inversion step: sqrt impact requires the quadratic
-    inversion  q = ADV · sign(z) · (|z|/σ)²,  whereas linear OW uses the
-    linear inversion  q = ADV · z / σ.  Both strategies track cumulative
-    position and clip to ±`max_position_adv`·ADV, then update Ī_prev from
-    the actual clipped trade so the recursion inversion remains exact.
+    Then invert the linear OU step:
+        z_t  = J*_t − (1 - β) · J_{t-1}
+        q*_t = ADV · z_t
+
+    Trades are clipped to ±``max_position_adv``·ADV and the actual
+    (clipped) J state is updated each step so that the inversion remains
+    exact even at the cap. ``ibar_init`` is interpreted as the initial
+    Ī state carried in from a previous session and inverted to a J state
+    on entry, so the same parameter name works for OW and AFS callers.
     """
     alpha = np.asarray(alpha, dtype=float)
     alpha = np.where(np.isfinite(alpha), alpha, 0.0)
@@ -131,25 +140,34 @@ def afs_optimal_strategy(
 
     ibar_star = alpha / ((1.0 + c) * lam)
 
+    # End-of-day liquidation ramp on Ī* before mapping through the inverse
+    # concavity, so the J target also decays smoothly to zero at the close.
     liq_bins = min(liquidation_minutes * BINS_PER_MINUTE, n)
     if liq_bins > 0:
         ramp = np.ones(n)
         ramp[n - liq_bins :] = np.linspace(1.0, 0.0, liq_bins)
         ibar_star = ibar_star * ramp
 
+    # Map target Ī* → target J* through the inverse of the concave shape.
+    jbar_star = np.sign(ibar_star) * np.power(np.abs(ibar_star) / sigma, 1.0 / c)
+
+    # Carry-in: ibar_init is expressed in Ī units (matches OW); invert to J.
+    jbar_prev = (
+        float(np.sign(ibar_init) * np.power(abs(ibar_init) / sigma, 1.0 / c))
+        if ibar_init != 0.0 else 0.0
+    )
+
     max_pos = max_position_adv * adv
     pos = 0.0
-    ibar_prev = float(ibar_init)
     trades = np.zeros(n)
     for t in range(n):
-        z = ibar_star[t] - decay * ibar_prev
-        q_desired = adv * np.sign(z) * (abs(z) / sigma) ** 2
+        z = jbar_star[t] - decay * jbar_prev
+        q_desired = adv * z  # linear inversion of the J recursion
         new_pos = float(np.clip(pos + q_desired, -max_pos, max_pos))
         q = new_pos - pos
         pos = new_pos
         trades[t] = q
-        q_tilde = sigma * np.sign(q) * np.sqrt(abs(q) / adv)
-        ibar_prev = decay * ibar_prev + q_tilde
+        jbar_prev = decay * jbar_prev + q / adv
     return trades
 
 
@@ -208,6 +226,11 @@ class ImpactModel:
     `lam_lookup` is per-stock; if `lam_t_lookup` is set, the model is treated
     as time-dependent (one array per stock-day), and the simulator uses
     g_t = λ_t * Ī_t instead of g = λ * Ī.
+
+    ``c`` is the AFS concavity exponent and is consumed by the simulator
+    only when ``model_type='sqrt'``. ``c=1`` would degenerate to linear OW
+    (so for the linear branch the field is ignored); ``c=0.5`` is the
+    canonical Alfonsi--Fruth--Schied square-root impact.
     """
 
     model_type: ModelType  # 'linear' or 'sqrt'
@@ -215,6 +238,7 @@ class ImpactModel:
     lam_lookup: dict[str, float]  # stock -> scalar λ
     lam_t_lookup: dict[tuple[str, object], np.ndarray] | None = None
     strategy: str = "ow"  # 'ow' | 'afs' | 'ext_ow'
+    c: float = 0.5  # AFS concavity (used when model_type='sqrt')
 
     def is_time_dependent(self) -> bool:
         return self.lam_t_lookup is not None
