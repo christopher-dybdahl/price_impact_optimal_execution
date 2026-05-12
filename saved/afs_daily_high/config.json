@@ -1,11 +1,11 @@
 {
-  "name": "afs_daily",
+  "name": "afs_daily_high",
   "model_type": "sqrt",
   "strategy": "afs",
   "carry": "daily",
   "half_life_minutes": 52.5,
   "tau_bins": 6,
-  "rho": 0.01,
+  "rho": 0.03,
   "h_alpha_bins": 30,
   "max_position_adv": 0.005,
   "liquidation_minutes": 30,

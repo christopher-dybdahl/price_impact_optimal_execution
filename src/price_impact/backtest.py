@@ -1,14 +1,15 @@
 """Waelbroeck-style simulator for generic trade paths.
 
-Implements the price construction from Part 4 of the course:
+The observed mid price already contains the impact of all market participants
+(including us), so P_unpert = mid (the unperturbed baseline we observe).
+The counterfactual price without our trades is obtained by stripping our
+marginal impact — we call this P_pert because it is the price we *perturb*
+by modelling the removal of our flow:
 
-    P_unpert(t) = P_0 · (1 + cum_ret(t) + g_others(t))
-    P_pert(t)   = P_0 · (1 + cum_ret(t) + g_full(t))
-
-where g(t) is the "impact contribution":
-
-    constant λ:   g(t) = λ · Ī(t)
-    time-dep λ:   g(t) = λ(t) · Ī(t)     (extended OW; via `lam_t`)
+    g(t)        = λ · Ī(t)                (or λ(t) · Ī(t) for time-dep λ)
+    Δg(t)       = g_full(t) − g_others(t)
+    P_unpert(t) = mid(t)                  (observed price, unperturbed baseline)
+    P_pert(t)   = mid(t) − P₀ · Δg(t)    (counterfactual without our trades)
 
 Ī(t) is the OU recursion on normalised flow (linear or sqrt). The simulator
 uses explicit flow accounting on a common bin grid:
@@ -17,16 +18,17 @@ uses explicit flow accounting on a common bin grid:
     q_us     = our signed trade path
     q_others = q_agg - q_us
 
-The "unperturbed" state is driven by q_others and the "perturbed" state by
+The "others" impact state is driven by q_others and the "full" state by
 q_agg. The simulator accepts **any** signed trade path `q_us` (not only the
-OW-optimal one) and supports both `carry='daily'` (reset Ī to 0 each day) and
-`carry='multi'` (carry both impact states and inventory across days with
+OW-optimal one) and supports both `carry='daily'` (reset Ī to 0 each day)
+and `carry='multi'` (carry both impact states and inventory across days with
 no overnight impact decay).
 
 This module intentionally keeps a *single* simulator entrypoint
 (:func:`run_backtest`) and a small set of helpers — anything more belongs in
 :mod:`results` (reporting) or :mod:`runner` (orchestration).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -86,6 +88,14 @@ def waelbroeck_prices(
 ) -> dict[str, np.ndarray]:
     """Simulate one (stock, date) session.
 
+    The observed mid already reflects the aggregate impact (including ours),
+    so ``p_unpert = mid`` (the unperturbed baseline).  The counterfactual
+    without our trades is obtained by stripping our marginal impact:
+
+        Δg(t)        = g_full(t) − g_others(t)
+        p_unpert(t)  = mid(t)                          (observed price)
+        p_pert(t)    = mid(t) − P₀ · Δg(t)            (counterfactual)
+
     Parameters
     ----------
     q_agg
@@ -100,19 +110,18 @@ def waelbroeck_prices(
     Returns
     -------
     dict with keys:
-        p_mid      — observed mid used to define the common baseline return
-        p_unpert   — no-us Waelbroeck path, driven by q_others
-        p_pert     — with-us Waelbroeck path, driven by q_agg
+        p_mid      — observed mid (identical to p_unpert)
+        p_unpert   — observed mid (unperturbed baseline)
+        p_pert     — counterfactual price without our trades
         i_others   — impact state Ī(q_agg - q_us)
         i_full     — impact state Ī(q_agg)
         g_others   — λ · Ī_others   (or λ_t · Ī_others for time-dep λ)
         g_full     — λ · Ī_full
-        delta_g    — g_full - g_others
+        delta_g    — g_full - g_others  (our marginal impact contribution)
         position   — cumulative position from q_us (shares)
-        cum_ret    — cumulative observed mid return from P0
 
     Backward-compatible aliases are also returned:
-        p_sim=p_pert, i_ref=i_others, i_sim=i_full, g_ref=g_others,
+        p_sim=p_unpert, i_ref=i_others, i_sim=i_full, g_ref=g_others,
         g_sim=g_full, q_sim=q_us.
     """
     mid = np.asarray(mid, dtype=float)
@@ -137,9 +146,8 @@ def waelbroeck_prices(
     g_full = lam_arr * i_full
     delta_g = g_full - g_others
 
-    cum_ret = (mid - mid[0]) / mid[0] if mid[0] != 0 else np.zeros(n)
-    p_unpert = mid[0] * (1.0 + cum_ret + g_others)
-    p_pert = mid[0] * (1.0 + cum_ret + g_full)
+    p_unpert = mid
+    p_pert = mid - mid[0] * delta_g
     position = np.cumsum(q_us)
 
     return {
@@ -155,9 +163,8 @@ def waelbroeck_prices(
         "q_us": q_us,
         "q_others": q_others,
         "position": position,
-        "cum_ret": cum_ret,
         # Legacy aliases used by older notebook cells / artifacts.
-        "p_sim": p_pert,
+        "p_sim": p_unpert,
         "i_ref": i_others,
         "i_sim": i_full,
         "g_ref": g_others,
@@ -234,11 +241,11 @@ class DaySimulation:
     sigma: float
     adv: float
     lam: float | np.ndarray
-    pnl_unpert: float       # mark-to-market on no-us Waelbroeck path
-    pnl_pert: float         # mark-to-market on with-us Waelbroeck path
-    pnl_mid_raw: float      # mark-to-market on observed mid
-    pnl_mid: float          # legacy alias: pnl_unpert
-    pnl_sim: float          # legacy alias: pnl_pert
+    pnl_unpert: float  # mark-to-market on observed mid (unperturbed baseline)
+    pnl_pert: float  # mark-to-market on counterfactual (no-us) path
+    pnl_mid_raw: float  # mark-to-market on observed mid (identical to pnl_unpert)
+    pnl_mid: float  # legacy alias: pnl_unpert
+    pnl_sim: float  # legacy alias: pnl_unpert
     flow_flag_count: int = 0
 
 
@@ -261,7 +268,7 @@ def _daily_rows(days: list[DaySimulation]) -> list[dict]:
     rows: list[dict] = []
     for d in days:
         lam_max = float(np.max(np.abs(d.delta_g))) if len(d.delta_g) else 0.0
-        impact_cost = d.pnl_unpert - d.pnl_pert
+        impact_cost = d.pnl_pert - d.pnl_unpert
         day_volume = (
             float(np.nansum(np.abs(d.volume))) if d.volume is not None else float("nan")
         )
@@ -473,7 +480,7 @@ def run_backtest(
                     pnl_pert=pnl_pert,
                     pnl_mid_raw=pnl_mid_raw,
                     pnl_mid=pnl_unpert,
-                    pnl_sim=pnl_pert,
+                    pnl_sim=pnl_unpert,
                     flow_flag_count=int(flow_flag.sum()),
                 )
             )
@@ -497,16 +504,23 @@ def make_optimal_provider(
     max_position_adv: float = 0.005,
     liquidation_minutes: int = 30,
     alpha_col: str = "alpha",
+    carry: str = "daily",
 ):
-    """Return a trade provider that calls `strategy_fn` per (stock, date)."""
+    """Return a trade provider that calls `strategy_fn` per (stock, date).
+
+    When ``carry="multi"``, the ending normalized impact state Ī from each day
+    is carried forward as ``ibar_init`` for the same stock on the next day,
+    so the strategy continues from where it left off rather than resetting to 0.
+    """
+    ibar_carry: dict[str, float] = {}
 
     def provider(stock, date, day_df, ctx: BacktestContext) -> np.ndarray:
         alpha = day_df[alpha_col].to_numpy(dtype=float)
-        # For time-dependent λ, pass the array; the simple OW strategy ignores
-        # vector λ (it expects scalar) so callers using ext-OW must supply
-        # their own provider.
-        lam_arg = ctx.lam if not isinstance(ctx.lam, np.ndarray) else float(np.mean(ctx.lam))
-        return strategy_fn(
+        lam_arg = (
+            ctx.lam if not isinstance(ctx.lam, np.ndarray) else float(np.mean(ctx.lam))
+        )
+        ibar_init = ibar_carry.get(stock, 0.0) if carry == "multi" else 0.0
+        trades = strategy_fn(
             alpha=alpha,
             sigma=ctx.sigma,
             adv=ctx.adv,
@@ -514,7 +528,15 @@ def make_optimal_provider(
             half_life_minutes=ctx.model.half_life_minutes,
             max_position_adv=max_position_adv,
             liquidation_minutes=liquidation_minutes,
+            ibar_init=ibar_init,
         )
+        if carry == "multi":
+            # Compute the ending normalized impact state so the next day's
+            # strategy can pick up from the right initial condition.
+            decay = decay_from_half_life(ctx.model.half_life_minutes)
+            qt = q_tilde(trades, ctx.sigma, ctx.adv, ctx.model.model_type)
+            ibar_carry[stock] = float(ou_recursion(qt, decay, i0=ibar_init)[-1])
+        return trades
 
     return provider
 
