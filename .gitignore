@@ -12,3 +12,7 @@ __pycache__/
 
 # VSCode
 .vscode/settings.json
+
+# Local Claude config and large cached artefacts.
+.claude/
+saved/
