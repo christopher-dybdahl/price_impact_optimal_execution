@@ -45,7 +45,7 @@ FIGURES = ROOT / "figures"
 RESULTS.mkdir(exist_ok=True)
 FIGURES.mkdir(exist_ok=True)
 
-TAU = 180
+TAU = 6
 CARRY = "daily"
 NBINS = 15
 NWIN = 10
