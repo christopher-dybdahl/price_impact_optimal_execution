@@ -111,7 +111,7 @@ daily-reset carry.
 
 \begin{table}[H]
 \centering\small
-\caption{Median pooled OOS $R^2$ over $(c, H)$.}
+\caption{Median pooled OOS $R^2$ over $(c, H)$, $\tau = 6$ bins (1 min).}
 \label{tab:grid}
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{lccccccccc}
@@ -119,34 +119,36 @@ daily-reset carry.
 $c \backslash H$ (min)
        & 5     & 10    & 15    & 30    & 45    & 60    & 90    & 120   & 180   \\
 \midrule
-0.30   & .024  & .037  & .041  & .042  & .041  & .037  & .034  & .033  & .031  \\
-0.40   & .026  & .041  & .047  & .049  & .048  & .046  & .043  & .042  & .041  \\
-0.50   & .028  & .044  & .050  & .053  & \textbf{.054}  & .052  & .051  & .048  & .047  \\
-0.60   & .030  & .045  & .053  & .058  & .059  & .058  & .057  & .055  & .052  \\
-0.70   & .030  & .045  & .054  & .061  & .062  & .062  & .061  & .059  & .056  \\
-0.80   & .027  & .047  & .054  & .064  & .066  & .065  & .063  & .063  & .061  \\
-0.90   & .026  & .044  & .054  & .063  & \textbf{.068}  & .067  & .065  & .062  & .060  \\
-1.00   & .023  & .042  & .049  & .061  & .064  & .066  & .065  & .062  & .058  \\
+0.30   & .092  & .079  & .071  & .059  & .051  & .048  & .045  & .042  & .040  \\
+0.40   & .116  & .105  & .098  & .085  & .078  & .074  & .071  & .069  & .067  \\
+0.50   & .136  & .130  & .125  & .111  & \textbf{.105}  & .104  & .102  & .099  & .096  \\
+0.60   & .152  & .149  & .145  & .135  & .131  & .129  & .127  & .125  & .124  \\
+0.70   & .160  & .161  & .158  & .150  & .148  & .145  & .143  & .142  & .142  \\
+0.80   & .160  & \textbf{.164}  & .162  & .158  & .157  & .154  & .155  & .152  & .151  \\
+0.90   & .154  & .160  & .160  & .160  & .160  & .160  & .158  & .158  & .158  \\
+1.00   & .141  & .148  & .151  & .152  & .152  & .152  & .151  & .150  & .149  \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The maximum is at $c^\star = 0.90$, $H^\star = 45$ min, with median
-pooled OOS $R^2 = 0.068$.  The increase over plain OW ($c = 1$, $H = 60$
-gives $R^2 = 0.066$) is only about $0.2$ percentage points, on a flat
-ridge that spans $c \in [0.7, 1.0]$ and $H \in [30, 90]$ at roughly
-the same $R^2$. Hence, it is hard to claim that the AFS model is unambiguously capturing additional structure above and beyond OW.  What is unambiguous is that
-strongly concave specifications are materially worse than OW:
-$c \le 0.5$ loses about $1.5$ percentage points of OOS $R^2$ at every
-$H$.
+The maximum is at $c^\star = 0.80$, $H^\star = 10$ min, with median
+pooled OOS $R^2 = 0.164$.  The increase over plain OW ($c = 1$,
+$H = 45\text{--}60$ gives $R^2 = 0.152$) is about $1.2$ percentage
+points, on a broad ridge that spans $c \in [0.7, 0.9]$ and
+$H \in [10, 60]$ at roughly the same $R^2$.  The data clearly prefer a
+concave specification --- the linear OW row is the worst row above
+$c = 0.6$ --- but the favoured concavity is mild ($c \in [0.7, 0.9]$),
+not the strongly concave $c = 0.5$ square-root.  Strongly concave
+specifications are materially worse than the ridge: $c \le 0.5$ loses
+roughly $3$ to $6$ percentage points of OOS $R^2$ at every $H$.
 
-The half-life dimension is forgiving and largely independent of $c$:
-once $H$ is in the 30-to-90 min band the OOS $R^2$ surface is flat to
-within a percentage point.  Very short $H$ (5 min) performs poorly over
-all $c$; very long $H$ (180 min) is roughly unchanged with respect to the optimium.
-The fact that the optimum $H^\star$ is the same order of magnitude
-across $c$ supports reading $H$ as a property of the market rather than
-of the model.
+The half-life dimension is fairly forgiving in the ridge region: once
+$H$ is in the 10-to-60 min band the OOS $R^2$ surface is flat to
+within a percentage point.  Very long $H$ (180 min) costs about a
+percentage point relative to the optimum at every $c$ in the ridge,
+and very short $H$ (5 min) is competitive at the optimal $c$.  The
+fact that the optimum $H^\star$ moves only mildly with $c$ supports
+reading $H$ as a property of the market rather than of the model.
 
 \bigskip
 \noindent
@@ -156,12 +158,13 @@ of the model.
 In order to preserve continuity with the presentation given earlier,
 we elect $c^\star = 0.50$ for the AFS model in the remainder of this
 report, despite the fact that the grid above supports an optimal $c$
-that brings AFS almost entirely in line with OW. We also proceed
-(somewhat incorrectly) by adopting a non-parametric extension with
-impact coefficient estimates binned according to impact states, but we
-update the impact flow kernel so that it properly reflects the
-corrected canonical AFS specification (linear OU on $q/\mathrm{ADV}$,
-power-law shape applied outside).
+that is mildly concave ($c \in [0.7, 0.9]$) rather than strongly
+concave.  We also proceed (somewhat incorrectly) by adopting a
+non-parametric extension with impact coefficient estimates binned
+according to impact states, but we update the impact flow kernel so
+that it properly reflects the corrected canonical AFS specification
+(linear OU on $q/\mathrm{ADV}$, power-law shape applied outside at
+$c = 0.5$).
 }}
 \bigskip
 
@@ -189,60 +192,71 @@ Figure~\ref{fig:curves} shows the estimated $g(x)$ at one window
 (train month 3).  Per-stock curves are grey, the universal pooled
 curve is the blue dashed line.  In the left panel the regressor is
 $x^{\text{OW}}$, built from the linear flow kernel, and the
-non-parametric curves deviate noticeably from a straight line.  In the right panel the regressor is
-$x^{\text{AFS}}$, built from the canonical power-law flow kernel at $c = 0.5$, and the
-non-parametric curves are roughly linear: the power-law kernel
-has already absorbed the curvature, so there is little left for the
-non-parametric estimator to add.
+non-parametric curves show clear concavity --- the slope through the
+origin is steeper than the slope at the extremes, consistent with
+sub-linear impact.  In the right panel the regressor is
+$x^{\text{AFS}}$, built from the canonical power-law flow kernel at
+$c = 0.5$.  The power-law transform has already pulled the small-flow
+range out, but the residual shape is still not a straight line: the
+$c{=}0.5$ kernel over-concaves the flow relative to the grid-optimal
+$c \approx 0.8$, so the non-parametric estimator continues to find
+structure even after the parametric kernel has been applied.  Both
+panels make clear why the NP estimator lifts OOS $R^2$ in
+Table~\ref{tab:apples} ($+6.9$ pp for OW, $+9.7$ pp for AFS at
+$c{=}0.5$).
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/impact_curves.png}
 \caption{Estimated $g(x)$ at train month $m = 3$.  Grey: per-stock
          $\hat g_i(\cdot)$; blue dashed: universal $\bar g(\cdot)$.
-         Left: OW with $x = \sigma\Delta\bar I_{\text{lin}}$.
-         Right: AFS with $x = \sigma\Delta\bar I_{c=0.5}$;
-         the concavity is empirically visible.}
+         Left: OW with $x = \sigma\Delta\bar I_{\text{lin}}$;
+         the concavity is empirically visible.
+         Right: AFS with $x = \sigma\Delta\bar I_{c=0.5}$; residual
+         curvature remains because $c = 0.5$ is more concave than the
+         data prefers.}
 \label{fig:curves}
 \end{figure}
 
 \subsection{$\gamma$ Regularisation}\label{sec:gamma}
 
-In the headline configuration the test-month MSE has a shallow
-minimum in $\gamma$ but the gain from cross-stock pooling is modest
-($+0.007$ in OOS $R^2$; see Figure~\ref{fig:gamma_progression},
-leftmost panel).  Shrinkage has little material to do, because
-per-stock estimators are already reasonably precise at the headline
-sample size (median $\sim 2{,}900$ observations per (stock, bin) cell).
+In the headline configuration the test-month MSE is essentially flat
+in $\gamma$ across six orders of magnitude
+(Figure~\ref{fig:gamma_progression}, leftmost panel).  Shrinkage has
+nothing material to do, because per-stock estimators are already
+precise at the headline sample size (median $\sim 2{,}900$
+observations per (stock, bin) cell), and the regularisation gain over
+the raw per-stock estimator is only $+0.0001$ in pooled OOS $R^2$.
 
-To verify the estimator behaves correctly when shrinkage actually does
-matter, we re-run the same protocol with progressively shorter
+To verify the estimator behaves correctly when shrinkage actually
+does matter, we re-run the same protocol with progressively shorter
 training windows, going from one month ($\sim 21$ trading days) down
 to five days and then to two days, which decreases per-cell $n$ from
-$\sim 2{,}900$ down to $\sim 265$.  As Table~\ref{tab:stress} shows,
-the optimal shrinkage strength $\gamma^\star/n$ rises sharply from
-$\sim 0.84$ at the headline to $\sim 4.9$ at two-day windows, and the
-OOS $R^2$ gain of regularised over raw per-stock estimators grows
-roughly sixteen times for OW (from $+0.007$ to $+0.106$) and twenty-one
-times for AFS (from $+0.006$ to $+0.128$).
+$\sim 2{,}900$ down to $\sim 275$.  As Table~\ref{tab:stress} shows,
+the optimal shrinkage strength $\gamma^\star/n$ rises from $\sim 0.14$
+at the headline to $\sim 1.0$ at two-day windows, and the OOS $R^2$
+gain of regularised over raw per-stock estimators grows roughly
+seventy times for OW (from $+0.0001$ to $+0.0066$) and eighty times
+for AFS (from $+0.0001$ to $+0.0094$).
 Figure~\ref{fig:gamma_progression} shows the corresponding $\gamma$
-tuning curves: nearly flat at the headline, developing a clear minimum
-at non-trivial $\gamma^\star$ as the window shrinks.  The flatness in
-the headline configuration is therefore a consequence of the fact that
-data is abundant, not a defect of the estimator.
+tuning curves: flat at the headline, developing a clear minimum at
+non-trivial $\gamma^\star$ as the window shrinks.  The flatness in
+the headline configuration is therefore a consequence of the fact
+that data is abundant, not a defect of the estimator.
 
 \begin{table}[H]
 \centering\small
 \caption{Regularisation gain as a function of per-cell sample size
-         (OW at $c{=}1$, $H{=}60$; canonical AFS at $c{=}0.5$, $H{=}45$).}
+         (OW at $c{=}1$, $H{=}60$; canonical AFS at $c{=}0.5$, $H{=}45$;
+         $\tau = 6$ bins).}
 \label{tab:stress}
 \begin{tabular}{lcccc}
 \toprule
 Train window & Med.\ $n$ & OW gain (reg $-$ raw) & AFS gain & Median $\gamma^\star/n$ \\
 \midrule
-1 month (headline) & ${\sim}2{,}900$ & $+0.0067$ & $+0.0061$ & $0.84$ \\
-5 days             & ${\sim}\,680$   & $+0.0463$ & $+0.0401$ & $2.76$ \\
-2 days             & ${\sim}\,265$   & $+0.1059$ & $+0.1281$ & $4.88$ \\
+1 month (headline) & ${\sim}2{,}900$ & $+0.0001$ & $+0.0001$ & $0.18$ \\
+5 days             & ${\sim}\,705$   & $+0.0011$ & $+0.0033$ & $0.74$ \\
+2 days             & ${\sim}\,275$   & $+0.0066$ & $+0.0094$ & $1.14$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -272,33 +286,35 @@ equal-weight per stock.
 \begin{table}[H]
 \centering\small
 \caption{Pooled OOS $R^2$ by model and estimator
-         (OW at $c{=}1$, $H{=}60$; AFS at $c{=}0.5$, $H{=}45$).}
+         (OW at $c{=}1$, $H{=}60$; AFS at $c{=}0.5$, $H{=}45$;
+         $\tau = 6$ bins).}
 \label{tab:apples}
 \begin{tabular}{lccc}
 \toprule
 Model & Parametric & NP regularised & $\Delta$ (NP $-$ Param) \\
 \midrule
-OW  & 0.1570 & 0.1429 & $-0.0140$ \\
-AFS & 0.1389 & 0.1318 & $-0.0071$ \\
+OW  & 0.1612 & 0.2299 & $+0.0687$ \\
+AFS & 0.1169 & 0.2141 & $+0.0972$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 
-Two observations.  First, OW dominates the continuity-AFS specification
-in this comparison: at $c{=}0.5$ AFS lands at parametric pooled OOS
-$R^2 = 0.139$ versus $0.157$ for OW, consistent with the $(c, H)$ grid
-showing the strongly concave $c \le 0.5$ region is materially worse
-than the near-linear ridge.  Second, the non-parametric estimator
-\emph{does not improve} the parametric fit for either model
-($-1.4$ pp for OW, $-0.7$ pp for AFS).  Under the no-intercept fit the
-one-parameter $\lambda$ is already an efficient summary of a roughly
-linear $g(x)$ surface (the OW panel of Fig.~\ref{fig:curves}), and the
-fifteen-bin estimator adds estimation variance without enough signal
-to recover the cost.  The take-away is that, at the headline sample
-size and under canonical AFS, the parametric fit is on the efficient
-frontier and there is no curvature left for the non-parametric
-estimator to harvest.
+Two observations.  First, the non-parametric estimator lifts both
+models substantially: $+6.9$ percentage points for OW (from $0.161$
+to $0.230$) and $+9.7$ percentage points for the continuity-AFS at
+$c{=}0.5$ (from $0.117$ to $0.214$).  There is genuine curvature in
+$g(x)$ that the parametric one-parameter $\lambda$ cannot capture,
+and the binned estimator harvests it.  Second, the NP estimator
+\emph{almost equalises} the two models: the parametric gap between
+OW and AFS ($4.4$ percentage points) shrinks to $1.6$ percentage
+points under NP, because the binned estimator absorbs the mis-specified
+concavity of the $c{=}0.5$ kernel and effectively re-discovers the
+correct impact curve regardless of the parametric assumption.  This is
+strong evidence that the right level of concavity sits on the
+near-linear ridge ($c \in [0.7, 0.9]$ per the $(c, H)$ grid), not at
+$c = 0.5$, and that fifteen non-parametric degrees of freedom are
+enough to compensate for getting $c$ wrong.
 
 \begin{figure}[H]
 \centering
@@ -632,43 +648,45 @@ half-life.
 The non-parametric $\gamma$ regularisation stress test of
 \S\ref{sec:gamma} doubles as a sensitivity check on the fitting side.
 When the training window shrinks from one month to two days the
-optimal shrinkage strength $\gamma^\star/n$ rises from $\sim 0.84$ to
-$\sim 4.9$ and the OOS $R^2$ gain over the raw per-stock estimator
-grows by an order of magnitude (sixteen-fold for OW, twenty-one-fold
-for AFS).  This is the ``what if I had much less data than I assumed''
-scenario, and the estimator's behaviour is regime-correct.
+optimal shrinkage strength $\gamma^\star/n$ rises from $\sim 0.14$ to
+$\sim 1.0$ and the OOS $R^2$ gain over the raw per-stock estimator
+grows by two orders of magnitude (from $\sim 10^{-4}$ to $\sim 10^{-2}$,
+roughly seventy-fold for OW and eighty-fold for AFS).  This is the
+``what if I had much less data than I assumed'' scenario, and the
+estimator's behaviour is regime-correct.
 
 %================================================================
 \section{What We Learned}\label{sec:conc}
 
 \paragraph{The power-law subfamily and the $(c, H)$ grid.}
-Fitting the joint $(c, H)$ grid under a no-intercept regression, the
-best specification on the twenty-stock panel sits at
-$(c^\star, H^\star) = (0.90, 45 \text{ min})$ with median pooled OOS
-$R^2 = 0.068$.  The improvement over plain OW ($c = 1$, $H = 60$ gives
-$R^2 = 0.066$) is about $0.2$ percentage points on a flat ridge
-spanning $c \in [0.7, 1.0]$ and $H \in [30, 90]$, so the data do not
-sharply distinguish OW from a mildly concave neighbour.  What the data
-\emph{do} say clearly is that strongly concave specifications are
-materially worse than the ridge---$c \le 0.5$ loses about $1.5$
+Fitting the joint $(c, H)$ grid under a no-intercept regression with
+$\tau = 6$ bins, the best specification on the twenty-stock panel sits
+at $(c^\star, H^\star) = (0.80, 10 \text{ min})$ with median pooled OOS
+$R^2 = 0.164$.  The improvement over plain OW ($c = 1$, $H = 60$ gives
+$R^2 = 0.152$) is about $1.2$ percentage points on a broad ridge
+spanning $c \in [0.7, 0.9]$ and $H \in [10, 60]$, so the data do
+prefer a mildly concave specification over the linear OW form.  What
+the data also say clearly is that strongly concave specifications are
+materially worse than the ridge: $c \le 0.5$ loses roughly $3$ to $6$
 percentage points of OOS $R^2$ at every $H$.  For continuity with the
 prior presentation, the subsequent NP-extension and backtest sections
 adopt $c = 0.5$ for the AFS model rather than the grid-optimal
-$c = 0.9$ (see addendum in \S\ref{sec:halflife}).
+$c = 0.8$ (see addendum in \S\ref{sec:halflife}).
 
 \paragraph{Enhancement 1: non-parametric impact with $\gamma$ regularisation.}
 With the canonical AFS at the continuity choice $c = 0.5$, the
-fifteen-bin estimator does \emph{not} improve on the no-intercept
-parametric fit at headline sample size: pooled OOS $R^2$ drops by
-$-1.4$ pp for OW (from $0.157$ to $0.143$) and $-0.7$ pp for AFS
-(from $0.139$ to $0.132$).  The parametric one-parameter $\lambda$ is
-already an efficient summary of a roughly linear $g(x)$ surface, and
-the binned estimator adds variance without adding signal.  Cross-stock
-$\gamma$ regularisation is correspondingly mild in the data-rich
-headline configuration ($\gamma^\star/n \sim 0.8$), but
-$\gamma^\star/n$ rises to $\sim 4.9$ and the OOS $R^2$ gain rises by
-roughly an order of magnitude as the training window shrinks tenfold,
-so the estimator behaves correctly when shrinkage is actually needed.
+fifteen-bin estimator lifts pooled OOS $R^2$ from $0.161$ to $0.230$
+for OW ($+6.9$ pp) and from $0.117$ to $0.214$ for AFS ($+9.7$ pp).
+The NP estimator almost equalises the two models because it absorbs
+the mis-specified $c = 0.5$ kernel and re-discovers the correct
+impact curve directly from the binned data, so the parametric
+spec mostly matters when one is not free to fit a fifteen-bin shape.
+Cross-stock $\gamma$ regularisation is immaterial in the data-rich
+headline configuration ($\gamma^\star/n \sim 0.18$, gain
+$\sim 10^{-4}$), but $\gamma^\star/n$ rises to $\sim 1.0$ and the OOS
+$R^2$ gain rises by two orders of magnitude as the training window
+shrinks tenfold, so the estimator behaves correctly when shrinkage is
+actually needed.
 
 \paragraph{Enhancement 2: multi-day carry backtest.}
 Carrying $\bar I$ and inventory across sessions quadruples gross P\&L
