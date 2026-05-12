@@ -109,9 +109,15 @@ def ow_optimal_strategy(
 ) -> np.ndarray:
     """OW (linear, c=1) optimal strategy. Delegates to optimal_strategy."""
     return optimal_strategy(
-        alpha, sigma, adv, lam, half_life_minutes,
-        c=1.0, max_position_adv=max_position_adv,
-        liquidation_minutes=liquidation_minutes, ibar_init=ibar_init,
+        alpha,
+        sigma,
+        adv,
+        lam,
+        half_life_minutes,
+        c=1.0,
+        max_position_adv=max_position_adv,
+        liquidation_minutes=liquidation_minutes,
+        ibar_init=ibar_init,
     )
 
 
@@ -129,9 +135,15 @@ def afs_optimal_strategy(
 ) -> np.ndarray:
     """AFS (sqrt by default, c=0.5) optimal strategy. Delegates to optimal_strategy."""
     return optimal_strategy(
-        alpha, sigma, adv, lam, half_life_minutes,
-        c=c, max_position_adv=max_position_adv,
-        liquidation_minutes=liquidation_minutes, ibar_init=ibar_init,
+        alpha,
+        sigma,
+        adv,
+        lam,
+        half_life_minutes,
+        c=c,
+        max_position_adv=max_position_adv,
+        liquidation_minutes=liquidation_minutes,
+        ibar_init=ibar_init,
     )
 
 
@@ -148,7 +160,15 @@ def ext_ow_optimal_strategy_timedep_lambda(
     liquidation_minutes: int = 30,
 ) -> np.ndarray:
     """Placeholder for the extended OW model where λ varies through the day."""
-    _ = (alpha, sigma, adv, lam_t, half_life_minutes, max_position_adv, liquidation_minutes)
+    _ = (
+        alpha,
+        sigma,
+        adv,
+        lam_t,
+        half_life_minutes,
+        max_position_adv,
+        liquidation_minutes,
+    )
     raise NotImplementedError(
         "Extended OW with time-dependent λ is not implemented; this is a"
         " placeholder for the closed-form solution to be added later."
@@ -196,7 +216,7 @@ class ImpactModel:
     model_type: ModelType  # 'linear' or 'sqrt' — label only; c is authoritative
     half_life_minutes: float
     lam_lookup: dict[str, float]  # stock -> scalar λ
-    c: float = 0.5               # concavity exponent: 0.5 (AFS) or 1.0 (OW)
+    c: float = 0.5  # concavity exponent: 0.5 (AFS) or 1.0 (OW)
     lam_t_lookup: dict[tuple[str, object], np.ndarray] | None = None
     strategy: str = "ow"  # 'ow' | 'afs' | 'ext_ow'
 
