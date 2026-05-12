@@ -116,62 +116,6 @@ def optimal_strategy(
 # ---------------------------------------------------------------------------
 # Named wrappers — thin delegates to optimal_strategy.
 # ---------------------------------------------------------------------------
-def optimal_strategy(
-    alpha: np.ndarray,
-    sigma: float,
-    adv: float,
-    lam: float,
-    half_life_minutes: float,
-    max_position_adv: float = 0.005,
-    liquidation_minutes: int = 30,
-    ibar_init: float = 0.0,
-    **_,
-) -> np.ndarray:
-    """OW (linear, c=1) optimal strategy. Delegates to optimal_strategy."""
-    return optimal_strategy(
-        alpha,
-        sigma,
-        adv,
-        lam,
-        half_life_minutes,
-        c=1.0,
-        max_position_adv=max_position_adv,
-        liquidation_minutes=liquidation_minutes,
-        ibar_init=ibar_init,
-    )
-
-
-def afs_optimal_strategy(
-    alpha: np.ndarray,
-    sigma: float,
-    adv: float,
-    lam: float,
-    half_life_minutes: float,
-    max_position_adv: float = 0.005,
-    liquidation_minutes: int = 30,
-    c: float = 0.5,
-    max_position_adv: float = 0.005,
-    liquidation_minutes: int = 30,
-    ibar_init: float = 0.0,
-    **_,
-) -> np.ndarray:
-    """AFS (sqrt by default, c=0.5) optimal strategy. Delegates to optimal_strategy."""
-    return optimal_strategy(
-        alpha,
-        sigma,
-        adv,
-        lam,
-        half_life_minutes,
-        c=c,
-        max_position_adv=max_position_adv,
-        liquidation_minutes=liquidation_minutes,
-        ibar_init=ibar_init,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Named wrappers — thin delegates to optimal_strategy.
-# ---------------------------------------------------------------------------
 def ow_optimal_strategy(
     alpha: np.ndarray,
     sigma: float,
