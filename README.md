@@ -2,7 +2,7 @@
 
 An end-to-end price-impact research pipeline: impact-model fitting,
 backtesting with impact-aware fills, synthetic alpha generation, and
-optimal-execution strategies — built for the Quantitative Trading and Price
+optimal-execution strategies, built for the Quantitative Trading and Price
 Impact final project of the MSc in Mathematics and Finance at Imperial
 College London, with Arthur Nageleisen and Anran Severac.
 
@@ -14,17 +14,17 @@ Full write-up in [`final_report.pdf`](final_report.pdf); slides in
 The panel is US equities on a 10-second intraday grid. The pipeline runs the
 whole research loop:
 
-1. **Impact-model fitting** (`src/price_impact/fitting.py`) — parametric
+1. **Impact-model fitting** (`src/price_impact/fitting.py`): parametric
    **Obizhaeva–Wang (OW)** and **AFS**-type propagator models, plus a
    **non-parametric binned impact estimator with cross-stock shrinkage**,
    its shrinkage intensity tuned on a held-out month and stress-tested
    across sample-size regimes.
-2. **Backtesting** (`src/price_impact/backtest.py`) — a generic
+2. **Backtesting** (`src/price_impact/backtest.py`): a generic
    Waelbroeck-style simulator whose fills move the price through the fitted
    impact state. Two engines behind one configuration switch: a per-day
    reset baseline, and a **multi-day carry engine** that persists impact
    state and inventory across sessions with overnight decay.
-3. **Optimal execution** (`src/price_impact/strategy.py`) — OW/AFS
+3. **Optimal execution** (`src/price_impact/strategy.py`): OW/AFS
    closed-form optimal trading against **synthetic alphas**
    (`src/price_impact/alpha.py`), including misspecification experiments
    (trading with the wrong impact model) and a sensitivity analysis.
